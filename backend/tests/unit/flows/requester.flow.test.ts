@@ -1,0 +1,671 @@
+import { ProducerFSM } from '../../../src/flows/requester.flow';
+import { whatsappService } from '../../../src/modules/whatsapp/whatsapp.service';
+import { prisma } from '../../../src/config/database';
+import { Messages } from '../../../src/flows/messages';
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
+
+jest.mock('../../../src/modules/whatsapp/whatsapp.service', () => ({
+  whatsappService: { sendMessage: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/config/database', () => ({
+  prisma: {
+    producer: {
+      findUniqueOrThrow: jest.fn(),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    conversationState: { upsert: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+    quote: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
+    proposal: { findFirst: jest.fn() },
+    subscription: { update: jest.fn() },
+    supplier: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
+    producerSupplier: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+    quoteItem: { createMany: jest.fn() },
+    quoteSupplierNotification: { createMany: jest.fn() },
+    $transaction: jest.fn(),
+  },
+}));
+
+jest.mock('../../../src/utils/logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logWithContext: jest.fn(),
+}));
+
+jest.mock('../../../src/services/metrics.service', () => ({
+  metricsService: { trackEvent: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/services/nlu-extractor.service', () => ({
+  nluExtractorService: { extract: jest.fn().mockResolvedValue(null) },
+}));
+
+jest.mock('../../../src/services/openai.service', () => ({
+  openaiService: { extractContactFromText: jest.fn() },
+}));
+
+jest.mock('../../../src/services/contact-extractor.service', () => ({
+  contactExtractorService: { extractContactData: jest.fn(), isVCard: jest.fn() },
+}));
+
+jest.mock('../../../src/services/supplier-notification.service', () => ({
+  supplierNotificationService: { sendProposalRankingFeedback: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/services/producer-settings.service', () => ({
+  ProducerSettingsService: {
+    getOrCreate: jest.fn().mockResolvedValue({
+      quoteExpiryHours: 2,
+      proposalLinkExpiryHours: 24,
+      defaultSupplierScope: 'ALL',
+      maxItemsPerQuote: 20,
+      quoteDeadlineDays: 7,
+    }),
+  },
+}));
+
+jest.mock('../../../src/services/quote-token.service', () => ({
+  QuoteTokenService: {
+    generateFormUrl: jest.fn().mockResolvedValue('https://example.com/cotacao/test-token'),
+    cancelByProducer: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock('../../../src/jobs/dispatch-quote.job', () => ({
+  dispatchQuoteJob: jest.fn().mockResolvedValue(3),
+}));
+
+jest.mock('../../../src/utils/validators', () => ({
+  parseDeadline: jest.fn().mockReturnValue(new Date('2026-04-20')),
+}));
+
+const mockSendMessage = whatsappService.sendMessage as jest.Mock;
+const mockFindProducer = (prisma.producer.findUniqueOrThrow as jest.Mock);
+const mockUpsertState = (prisma.conversationState.upsert as jest.Mock);
+const mockUpdateState = (prisma.conversationState.update as jest.Mock);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const PRODUCER_ID = 'prod-123';
+const PHONE = '+5564999999999';
+const TENANT_ID = 'tenant-abc';
+
+function makeProducer(step: string, context: Record<string, unknown> = {}) {
+  return {
+    id: PRODUCER_ID,
+    phone: PHONE,
+    name: 'João',
+    tenantId: TENANT_ID,
+    lastQuotePreferences: null,
+    conversationState: { step, context },
+    subscription: { id: 'sub-1', quotesUsed: 0, quotesLimit: 100 },
+  };
+}
+
+let fsm: ProducerFSM;
+
+function setupProducer(step: string, context: Record<string, unknown> = {}) {
+  const producer = makeProducer(step, context);
+  mockFindProducer.mockImplementation(async (args: any) => {
+    if (args?.select?.tenantId) return { tenantId: TENANT_ID };
+    return producer;
+  });
+  // Mock getState for TTL check — return non-expired state
+  const mockFindState = prisma.conversationState.findUnique as jest.Mock;
+  mockFindState.mockResolvedValue({
+    step,
+    context,
+    producerId: PRODUCER_ID,
+    updatedAt: new Date(), // Recent — not expired
+  });
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUpsertState.mockResolvedValue({});
+  mockUpdateState.mockResolvedValue({});
+  // Default mock para showSupplierListForSelection — testes específicos podem sobrescrever
+  (prisma.supplier.findMany as jest.Mock).mockResolvedValue([]);
+  (prisma.producerSupplier.findMany as jest.Mock).mockResolvedValue([]);
+  (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
+  (prisma.producerSupplier.findFirst as jest.Mock).mockResolvedValue(null);
+  (prisma.producerSupplier.create as jest.Mock).mockResolvedValue({});
+  (prisma.supplier.create as jest.Mock).mockResolvedValue({ id: 's-new', name: 'Novo', phone: '64999990000' });
+  (prisma.supplier.update as jest.Mock).mockResolvedValue({});
+  // $transaction: por padrão executa o callback recebido com prisma como tx
+  (prisma as any).$transaction = jest.fn(async (fn: any) => fn(prisma));
+  fsm = new ProducerFSM();
+});
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe('ProducerFSM', () => {
+  describe('IDLE', () => {
+    it('envia mensagem de boas-vindas ao receber mensagem em IDLE', async () => {
+      setupProducer('IDLE');
+      await fsm.handleMessage(PRODUCER_ID, 'olá');
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('Comando global: cancelar', () => {
+    it('envia mensagem de cancelamento', async () => {
+      setupProducer('AWAITING_PRODUCT');
+      await fsm.handleMessage(PRODUCER_ID, 'cancelar');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ body: Messages.QUOTE_CANCELLED }),
+      );
+    });
+  });
+
+  describe('Comando global: ajuda', () => {
+    it('envia mensagem de ajuda sem mudar estado', async () => {
+      setupProducer('AWAITING_QUANTITY');
+      await fsm.handleMessage(PRODUCER_ID, 'ajuda');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ body: Messages.HELP }),
+      );
+      expect(mockUpsertState).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_QUOTE_MODE', () => {
+    it('opção 1 inicia fluxo WhatsApp e pede categoria', async () => {
+      setupProducer('AWAITING_QUOTE_MODE');
+      await fsm.handleMessage(PRODUCER_ID, '1');
+      expect(mockSendMessage).toHaveBeenCalled();
+      expect(mockUpsertState).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_CATEGORY', () => {
+    it('seleciona categoria "sementes" (opção 1) e envia mensagem', async () => {
+      setupProducer('AWAITING_CATEGORY');
+      await fsm.handleMessage(PRODUCER_ID, '1');
+      // Deve enviar mensagem pedindo produto ou ingrediente ativo
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_PRODUCT', () => {
+    it('aceita nome do produto e envia mensagem pedindo quantidade', async () => {
+      setupProducer('AWAITING_PRODUCT', { category: 'sementes' });
+      await fsm.handleMessage(PRODUCER_ID, 'Soja Intacta');
+      // Deve enviar mensagem pedindo quantidade
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_QUANTITY', () => {
+    it('aceita quantidade válida e avança', async () => {
+      setupProducer('AWAITING_QUANTITY', {
+        category: 'sementes', product: 'Soja', items: [],
+      });
+      await fsm.handleMessage(PRODUCER_ID, '500 sacas');
+      // Deve avançar para AWAITING_MORE_ITEMS ou AWAITING_REGION
+      expect(mockUpsertState).toHaveBeenCalled();
+    });
+
+    it('rejeita quantidade inválida (texto sem números)', async () => {
+      setupProducer('AWAITING_QUANTITY', {
+        category: 'sementes', product: 'Soja', items: [],
+      });
+      await fsm.handleMessage(PRODUCER_ID, 'abc');
+      // Deve enviar mensagem de erro ou pedir novamente
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_REGION', () => {
+    it('aceita região e avança para AWAITING_DEADLINE', async () => {
+      setupProducer('AWAITING_REGION', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+      });
+      await fsm.handleMessage(PRODUCER_ID, 'Rio Verde - GO');
+      expect(mockUpsertState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({ step: 'AWAITING_DEADLINE' }),
+        }),
+      );
+    });
+  });
+
+  describe('AWAITING_DEADLINE', () => {
+    it('aceita prazo válido e avança para AWAITING_OBSERVATIONS', async () => {
+      setupProducer('AWAITING_DEADLINE', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+        region: 'Rio Verde - GO',
+      });
+      await fsm.handleMessage(PRODUCER_ID, 'em 5 dias');
+      expect(mockUpsertState).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_OBSERVATIONS', () => {
+    it('"não" pula observações e avança', async () => {
+      setupProducer('AWAITING_OBSERVATIONS', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+        region: 'Rio Verde', deadline: '2026-04-20',
+      });
+      await fsm.handleMessage(PRODUCER_ID, 'não');
+      expect(mockUpsertState).toHaveBeenCalled();
+    });
+
+    it('texto livre é salvo como observação', async () => {
+      setupProducer('AWAITING_OBSERVATIONS', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+        region: 'Rio Verde', deadline: '2026-04-20',
+      });
+      await fsm.handleMessage(PRODUCER_ID, 'Preciso de certificado orgânico');
+      expect(mockUpsertState).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_FREIGHT', () => {
+    it('aceita opção CIF (1)', async () => {
+      setupProducer('AWAITING_FREIGHT', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+      });
+      await fsm.handleMessage(PRODUCER_ID, '1');
+      expect(mockUpsertState).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_PAYMENT_TERMS', () => {
+    it('aceita condição de pagamento e avança', async () => {
+      setupProducer('AWAITING_PAYMENT_TERMS', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+        freight: 'CIF',
+      });
+      await fsm.handleMessage(PRODUCER_ID, '30 dias');
+      expect(mockUpsertState).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_SUPPLIER_SCOPE', () => {
+    it('opção 1 (meus fornecedores) envia mensagem ao produtor', async () => {
+      (prisma.producerSupplier.findMany as jest.Mock).mockResolvedValue([
+        { supplier: { id: 's1', name: 'Forn A', phone: '+5511999999999' } },
+      ]);
+      (prisma.supplier.findMany as jest.Mock).mockResolvedValue([]);
+      setupProducer('AWAITING_SUPPLIER_SCOPE', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+        freight: 'CIF', paymentTerms: '30 dias',
+      });
+      await fsm.handleMessage(PRODUCER_ID, '1');
+      // Deve enviar mensagem (lista de fornecedores ou confirmação)
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+
+    // ── FF-BE-006 — Guard de feature flag ENABLE_NETWORK_SUPPLIERS ──────────
+    describe('FF-BE-006 — guard de feature flag', () => {
+      it('com flag off, força MINE e mostra lista de fornecedores ignorando a mensagem do usuário', async () => {
+        (prisma.supplier.findMany as jest.Mock).mockResolvedValue([
+          { id: 's1', name: 'Forn A', phone: '+55119', categories: [], rating: 5, totalProposals: 0, acceptedProposals: 0, proposals: [] },
+        ]);
+        setupProducer('AWAITING_SUPPLIER_SCOPE', {
+          items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+          freight: 'CIF', paymentTerms: '30 dias',
+        });
+
+        // Mesmo se o produtor digitar "2" (Rede) — deve ser ignorado
+        await fsm.handleMessage(PRODUCER_ID, '2');
+
+        // Deve renderizar a lista de fornecedores próprios, não a pergunta de escopo
+        const sentBodies = mockSendMessage.mock.calls.map((c) => c[0].body as string);
+        const offered3Options = sentBodies.some((b) => b.includes('Rede CotaObra'));
+        expect(offered3Options).toBe(false);
+
+        const showedSupplierList = sentBodies.some((b) =>
+          b.includes('Seus Fornecedores') || b.includes('Meus Fornecedores'),
+        );
+        expect(showedSupplierList).toBe(true);
+      });
+
+      it('com flag off, mensagem de erro de input inválido NÃO menciona Rede CotaObra', async () => {
+        // Para alcançar o bloco de erro, simulamos a flag ON via spy temporário
+        // e voltamos a desligar em seguida — defesa em profundidade do Fix 2.
+        // Aqui validamos o caminho default (flag off): qualquer input cai no guard
+        // e nunca chega no else. Confirma que o guard cobre todo input inválido.
+        (prisma.supplier.findMany as jest.Mock).mockResolvedValue([]);
+        setupProducer('AWAITING_SUPPLIER_SCOPE', {
+          items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+          freight: 'CIF', paymentTerms: '30 dias',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, 'qualquer coisa aleatoria');
+
+        const sentBodies = mockSendMessage.mock.calls.map((c) => c[0].body as string);
+        const leakedNetworkOption = sentBodies.some(
+          (b) => b.includes('2 — Rede CotaObra') || b.includes('3 — Todos'),
+        );
+        expect(leakedNetworkOption).toBe(false);
+      });
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // FF-BE-007 — Cadastro inline de fornecedor durante cotação
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('FF-BE-007 — Cadastro inline de fornecedor', () => {
+    const SUPPLIER_LIST_POPULATED = [
+      {
+        id: 's1',
+        name: 'Gilvanio',
+        phone: '+5564999990001',
+        categories: ['sementes'],
+        rating: 5,
+        totalProposals: 0,
+        acceptedProposals: 0,
+        proposals: [],
+      },
+      {
+        id: 's2',
+        name: 'Rafael Uniggel',
+        phone: '+5564999990002',
+        categories: ['sementes'],
+        rating: 4,
+        totalProposals: 0,
+        acceptedProposals: 0,
+        proposals: [],
+      },
+    ];
+
+    describe('showSupplierListForSelection — mensagens', () => {
+      it('lista populada exibe opção 3 — Cadastrar novo fornecedor', async () => {
+        (prisma.supplier.findMany as jest.Mock).mockResolvedValue(SUPPLIER_LIST_POPULATED);
+        setupProducer('AWAITING_SUPPLIER_SCOPE', {
+          category: 'sementes',
+          items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+          freight: 'CIF', paymentTerms: '30 dias',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '1'); // qualquer input cai no guard FF-BE-006 → showSupplierListForSelection
+
+        const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+        expect(body).toContain('1 — Enviar para todos');
+        expect(body).toContain('2 — Escolher fornecedores');
+        expect(body).toContain('3 — Cadastrar novo fornecedor');
+      });
+
+      it('lista vazia exibe somente opção 1 — Cadastrar fornecedor (sem queda na rede)', async () => {
+        (prisma.supplier.findMany as jest.Mock).mockResolvedValue([]);
+        setupProducer('AWAITING_SUPPLIER_SCOPE', {
+          category: 'sementes',
+          items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+          freight: 'CIF', paymentTerms: '30 dias',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '1');
+
+        const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+        expect(body).toContain('1 — Cadastrar fornecedor');
+        expect(body).not.toContain('Rede CotaObra');
+        expect(body).not.toContain('Enviar para todos');
+      });
+    });
+
+    describe('handleAwaitingSupplierSelection — gatilho de cadastro', () => {
+      it('lista populada + opção "3" inicia cadastro (estado AWAITING_NEW_SUPPLIER_NAME)', async () => {
+        setupProducer('AWAITING_SUPPLIER_SELECTION', {
+          category: 'sementes',
+          availableSuppliers: [
+            { id: 's1', name: 'Gilvanio', phone: '+5564999990001' },
+          ],
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '3');
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ body: 'Nome do fornecedor:' }),
+        );
+        expect(mockUpsertState).toHaveBeenCalledWith(
+          expect.objectContaining({
+            update: expect.objectContaining({ step: 'AWAITING_NEW_SUPPLIER_NAME' }),
+          }),
+        );
+      });
+
+      it('lista vazia + opção "1" inicia cadastro (mesmo handler)', async () => {
+        setupProducer('AWAITING_SUPPLIER_SELECTION', {
+          category: 'sementes',
+          availableSuppliers: [],
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '1');
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ body: 'Nome do fornecedor:' }),
+        );
+        expect(mockUpsertState).toHaveBeenCalledWith(
+          expect.objectContaining({
+            update: expect.objectContaining({ step: 'AWAITING_NEW_SUPPLIER_NAME' }),
+          }),
+        );
+      });
+
+      it('lista vazia + input inválido pede cadastrar e mantém estado', async () => {
+        setupProducer('AWAITING_SUPPLIER_SELECTION', {
+          category: 'sementes',
+          availableSuppliers: [],
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, 'xyz');
+
+        const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+        expect(body).toContain('1 — Cadastrar fornecedor');
+        expect(mockUpsertState).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('handleAwaitingNewSupplierName', () => {
+      it('aceita nome válido e avança para AWAITING_NEW_SUPPLIER_PHONE com nome no contexto', async () => {
+        setupProducer('AWAITING_NEW_SUPPLIER_NAME', { category: 'sementes' });
+
+        await fsm.handleMessage(PRODUCER_ID, 'João da Cooperativa');
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            body: expect.stringContaining('Telefone de João da Cooperativa'),
+          }),
+        );
+        expect(mockUpsertState).toHaveBeenCalledWith(
+          expect.objectContaining({
+            update: expect.objectContaining({
+              step: 'AWAITING_NEW_SUPPLIER_PHONE',
+              context: expect.objectContaining({ newSupplierName: 'João da Cooperativa' }),
+            }),
+          }),
+        );
+      });
+
+      it('rejeita nome muito curto (< 2 caracteres) e mantém estado', async () => {
+        setupProducer('AWAITING_NEW_SUPPLIER_NAME', { category: 'sementes' });
+
+        await fsm.handleMessage(PRODUCER_ID, 'X');
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ body: expect.stringContaining('nome válido') }),
+        );
+        expect(mockUpsertState).not.toHaveBeenCalled();
+      });
+
+      it('rejeita nome vazio (apenas espaços) e mantém estado', async () => {
+        setupProducer('AWAITING_NEW_SUPPLIER_NAME', { category: 'sementes' });
+
+        await fsm.handleMessage(PRODUCER_ID, '   ');
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ body: expect.stringContaining('nome válido') }),
+        );
+        expect(mockUpsertState).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('handleAwaitingNewSupplierPhone', () => {
+      it('telefone válido cria fornecedor e vincula ao produtor (transação)', async () => {
+        (prisma.supplier.create as jest.Mock).mockResolvedValue({
+          id: 's-new', name: 'João', phone: '64999990000',
+        });
+
+        setupProducer('AWAITING_NEW_SUPPLIER_PHONE', {
+          category: 'sementes',
+          newSupplierName: 'João',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '64 99999-0000');
+
+        // $transaction foi invocada (criação atômica)
+        expect((prisma as any).$transaction).toHaveBeenCalled();
+        // Mensagem de sucesso
+        const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+        expect(body).toMatch(/cadastrado com sucesso/i);
+      });
+
+      it('telefone com letras → rejeita e mantém estado', async () => {
+        setupProducer('AWAITING_NEW_SUPPLIER_PHONE', {
+          category: 'sementes',
+          newSupplierName: 'João',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, 'abc123');
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ body: expect.stringContaining('Número inválido') }),
+        );
+        expect((prisma as any).$transaction).not.toHaveBeenCalled();
+        expect(mockUpsertState).not.toHaveBeenCalled();
+      });
+
+      it('telefone com menos de 10 dígitos → rejeita', async () => {
+        setupProducer('AWAITING_NEW_SUPPLIER_PHONE', {
+          category: 'sementes',
+          newSupplierName: 'João',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '999');
+
+        expect(mockSendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ body: expect.stringContaining('Número inválido') }),
+        );
+        expect((prisma as any).$transaction).not.toHaveBeenCalled();
+      });
+
+      it('fornecedor existente no tenant → vincula sem criar (sem transação)', async () => {
+        (prisma.supplier.findFirst as jest.Mock).mockResolvedValue({
+          id: 's-existing',
+          name: 'João Existente',
+          phone: '64999990000',
+          categories: ['sementes'],
+        });
+
+        setupProducer('AWAITING_NEW_SUPPLIER_PHONE', {
+          category: 'sementes',
+          newSupplierName: 'João',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '64999990000');
+
+        // Não criou novo (achou existente)
+        expect((prisma as any).$transaction).not.toHaveBeenCalled();
+        // Vinculou o producer ao supplier existente
+        expect(prisma.producerSupplier.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ supplierId: 's-existing' }),
+          }),
+        );
+        const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+        expect(body).toMatch(/já estava cadastrado/i);
+      });
+
+      it('newSupplierName é removido do contexto após o cadastro', async () => {
+        (prisma.supplier.create as jest.Mock).mockResolvedValue({
+          id: 's-new', name: 'João', phone: '64999990000',
+        });
+
+        setupProducer('AWAITING_NEW_SUPPLIER_PHONE', {
+          category: 'sementes',
+          newSupplierName: 'João',
+        });
+
+        await fsm.handleMessage(PRODUCER_ID, '64999990000');
+
+        // O último upsert (vindo do showSupplierListForSelection após cadastro)
+        // não deve mais conter newSupplierName
+        const upsertCalls = mockUpsertState.mock.calls;
+        const lastUpsert = upsertCalls[upsertCalls.length - 1];
+        const persistedContext = lastUpsert?.[0]?.update?.context;
+        expect(persistedContext).toBeDefined();
+        expect(persistedContext.newSupplierName).toBeUndefined();
+      });
+    });
+  });
+
+  describe('AWAITING_CONFIRMATION', () => {
+    it('opção 1 confirma e dispara cotação', async () => {
+      (prisma.quote.create as jest.Mock).mockResolvedValue({
+        id: 'q-1', producerId: PRODUCER_ID, items: [],
+      });
+      setupProducer('AWAITING_CONFIRMATION', {
+        items: [{ product: 'Soja', quantity: 500, unit: 'sacas' }],
+        region: 'Rio Verde', deadline: '2026-04-20',
+        freight: 'CIF', paymentTerms: '30 dias',
+        supplierScope: 'ALL',
+      });
+      await fsm.handleMessage(PRODUCER_ID, '1');
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('AWAITING_CHOICE (pós-consolidação)', () => {
+    it('mensagem genérica no estado AWAITING_CHOICE é recebida', async () => {
+      setupProducer('AWAITING_CHOICE', { quoteId: 'q-1' });
+      await fsm.handleMessage(PRODUCER_ID, 'qualquer coisa');
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('Estados finalizados (QUOTE_ACTIVE, CLOSED)', () => {
+    it('reseta QUOTE_ACTIVE para IDLE e trata como nova mensagem', async () => {
+      setupProducer('QUOTE_ACTIVE');
+      await fsm.handleMessage(PRODUCER_ID, 'olá');
+      expect(mockUpdateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ step: 'IDLE' }),
+        }),
+      );
+    });
+
+    it('reseta CLOSED para IDLE e trata como nova mensagem', async () => {
+      setupProducer('CLOSED');
+      await fsm.handleMessage(PRODUCER_ID, 'olá');
+      expect(mockUpdateState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ step: 'IDLE' }),
+        }),
+      );
+    });
+  });
+
+  describe('Estado desconhecido (default)', () => {
+    it('reseta para IDLE e envia boas-vindas', async () => {
+      setupProducer('UNKNOWN_STATE_XYZ' as any);
+      await fsm.handleMessage(PRODUCER_ID, 'olá');
+      expect(mockUpdateState).toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('Tratamento de erro', () => {
+    it('envia mensagem de erro ao produtor se handler lançar exceção', async () => {
+      setupProducer('AWAITING_PRODUCT', { category: 'sementes' });
+      mockUpsertState.mockRejectedValueOnce(new Error('DB down'));
+      await fsm.handleMessage(PRODUCER_ID, 'Soja');
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ body: Messages.ERROR }),
+      );
+    });
+  });
+});

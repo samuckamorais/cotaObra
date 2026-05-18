@@ -1,0 +1,186 @@
+# CotaObra — E2E Playwright
+# Destino no repo: .github/workflows/e2e.yml
+# Roda em: PRs para main + diariamente às 04:00 UTC
+# Versão: 1.0 — 18/05/2026
+
+name: E2E
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Daily smoke 04:00 UTC = 01:00 BRT (carga baixa)
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9"
+
+jobs:
+  playwright:
+    name: Playwright smoke (5 cenários P0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: cotaobra
+          POSTGRES_PASSWORD: cotaobra
+          POSTGRES_DB: cotaobra_e2e
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U cotaobra"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # ----------- Backend bootstrap -----------
+      - name: Install backend
+        working-directory: backend
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate + migrate + seed
+        working-directory: backend
+        env:
+          DATABASE_URL: "postgresql://cotaobra:cotaobra@localhost:5433/cotaobra_e2e?schema=public"
+        run: |
+          pnpm prisma generate
+          pnpm prisma migrate deploy
+          pnpm seed
+
+      - name: Start backend (background)
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          PORT: 3000
+          DATABASE_URL: "postgresql://cotaobra:cotaobra@localhost:5433/cotaobra_e2e?schema=public"
+          REDIS_URL: "redis://localhost:6380"
+          JWT_SECRET: "e2e-secret-32-chars-aaaaaaaaaaaa"
+          FIELD_ENCRYPTION_KEY: "e2e-aes256-key-32-bytes-must-haveX"
+          OPENAI_API_KEY: "fake-mock"
+          WHATSAPP_PROVIDER: "evolution"
+          EVOLUTION_API_URL: "http://localhost:8080"
+          EVOLUTION_API_KEY: "fake-e2e"
+          EVOLUTION_INSTANCE_NAME: "e2e"
+          FRONTEND_URL: "http://localhost:4173"
+          CORS_ORIGINS: "http://localhost:4173"
+          ENABLE_CRONS: "false"
+        run: |
+          pnpm build
+          nohup pnpm start > backend.log 2>&1 &
+          echo $! > backend.pid
+
+      - name: Wait for backend health
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:3000/health >/dev/null; then
+              echo "✅ Backend up"
+              exit 0
+            fi
+            echo "Waiting backend... ($i/30)"
+            sleep 2
+          done
+          echo "❌ Backend não subiu"
+          cat backend/backend.log
+          exit 1
+
+      # ----------- Frontend bootstrap -----------
+      - name: Install frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: "http://localhost:3000"
+        run: pnpm build
+
+      - name: Start frontend (background)
+        working-directory: frontend
+        run: |
+          nohup pnpm preview --port 4173 --host > frontend.log 2>&1 &
+          echo $! > frontend.pid
+
+      - name: Wait for frontend
+        run: |
+          for i in {1..15}; do
+            if curl -sf http://localhost:4173 >/dev/null; then
+              echo "✅ Frontend up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "❌ Frontend não subiu"
+          cat frontend/frontend.log
+          exit 1
+
+      # ----------- Playwright -----------
+      - name: Install Playwright browsers
+        working-directory: tests/e2e
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        working-directory: tests/e2e
+        env:
+          BASE_URL: "http://localhost:4173"
+          API_URL: "http://localhost:3000"
+        run: pnpm exec playwright test --reporter=html,line
+
+      # ----------- Artefatos em falha -----------
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Upload screenshots & traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failures
+          path: tests/e2e/test-results/
+          retention-days: 14
+
+      - name: Upload backend log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log
+          path: backend/backend.log
+          retention-days: 7
+
+      # ----------- Cleanup -----------
+      - name: Stop services
+        if: always()
+        run: |
+          kill $(cat backend/backend.pid) 2>/dev/null || true
+          kill $(cat frontend/frontend.pid) 2>/dev/null || true

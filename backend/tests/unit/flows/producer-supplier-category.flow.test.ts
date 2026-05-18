@@ -1,0 +1,283 @@
+/**
+ * FF-BE-024 — Handler AWAITING_SUPPLIER_CATEGORY salva VALUE canônico.
+ *
+ * Cobre os 11 cenários da spec do PO (Cenários 1 a 11). O foco é provar:
+ *   - lista canônica completa exibida (não dinâmica do tenant)
+ *   - resposta do produtor (número, texto, plural, sem acento, mistura) é
+ *     resolvida no value canônico antes de persistir
+ *   - input inválido remostra a lista e mantém o estado
+ *   - cadastro inline (vindo da cotação) normaliza a categoria do contexto
+ */
+import { ProducerFSM } from '../../../src/flows/requester.flow';
+import { whatsappService } from '../../../src/modules/whatsapp/whatsapp.service';
+import { prisma } from '../../../src/config/database';
+import { SUPPLIER_CATEGORY_LABELS } from '../../../src/constants/supplier-categories';
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
+
+jest.mock('../../../src/modules/whatsapp/whatsapp.service', () => ({
+  whatsappService: { sendMessage: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/config/database', () => ({
+  prisma: {
+    producer: { findUniqueOrThrow: jest.fn() },
+    conversationState: { upsert: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+    supplier: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    producerSupplier: { findFirst: jest.fn(), create: jest.fn() },
+    $transaction: jest.fn(),
+  },
+}));
+
+jest.mock('../../../src/utils/logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logWithContext: jest.fn(),
+}));
+
+jest.mock('../../../src/services/metrics.service', () => ({
+  metricsService: { trackEvent: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/services/nlu-extractor.service', () => ({
+  nluExtractorService: { extract: jest.fn().mockResolvedValue(null) },
+}));
+
+jest.mock('../../../src/services/openai.service', () => ({
+  openaiService: { extractContactFromText: jest.fn() },
+}));
+
+jest.mock('../../../src/services/contact-extractor.service', () => ({
+  contactExtractorService: { extractFromVCard: jest.fn(), extractContactData: jest.fn(), isVCard: jest.fn() },
+}));
+
+jest.mock('../../../src/services/supplier-notification.service', () => ({
+  supplierNotificationService: { sendProposalRankingFeedback: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/services/producer-settings.service', () => ({
+  ProducerSettingsService: {
+    getOrCreate: jest.fn().mockResolvedValue({
+      quoteExpiryHours: 2,
+      proposalLinkExpiryHours: 24,
+      defaultSupplierScope: 'ALL',
+      maxItemsPerQuote: 20,
+      quoteDeadlineDays: 7,
+    }),
+  },
+}));
+
+jest.mock('../../../src/services/quote-token.service', () => ({
+  QuoteTokenService: {
+    generateFormUrl: jest.fn().mockResolvedValue('https://example.com/cotacao/x'),
+    cancelByProducer: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock('../../../src/jobs/dispatch-quote.job', () => ({
+  dispatchQuoteJob: jest.fn().mockResolvedValue(3),
+}));
+
+jest.mock('../../../src/utils/validators', () => ({
+  parseDeadline: jest.fn().mockReturnValue(new Date('2026-06-01')),
+}));
+
+const mockSendMessage = whatsappService.sendMessage as jest.Mock;
+const mockFindProducer = prisma.producer.findUniqueOrThrow as jest.Mock;
+const mockUpdateSupplier = prisma.supplier.update as jest.Mock;
+const mockFindState = prisma.conversationState.findUnique as jest.Mock;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const PRODUCER_ID = 'prod-1';
+const PHONE = '+5564999999999';
+const TENANT_ID = 'tenant-1';
+const SUPPLIER_ID = 'sup-new';
+const SUPPLIER_NAME = 'João Silva';
+
+function setupCategoryState(
+  contextOverride: Record<string, unknown> = {},
+): void {
+  const context = {
+    supplierId: SUPPLIER_ID,
+    supplierName: SUPPLIER_NAME,
+    availableCategories: [...SUPPLIER_CATEGORY_LABELS],
+    ...contextOverride,
+  };
+  const producer = {
+    id: PRODUCER_ID,
+    phone: PHONE,
+    name: 'Produtor',
+    tenantId: TENANT_ID,
+    lastQuotePreferences: null,
+    conversationState: { step: 'AWAITING_SUPPLIER_CATEGORY', context },
+    subscription: { id: 'sub-1', quotesUsed: 0, quotesLimit: 100 },
+  };
+  mockFindProducer.mockImplementation(async (args: any) => {
+    if (args?.select?.tenantId) return { tenantId: TENANT_ID };
+    return producer;
+  });
+  mockFindState.mockResolvedValue({
+    step: 'AWAITING_SUPPLIER_CATEGORY',
+    context,
+    producerId: PRODUCER_ID,
+    updatedAt: new Date(),
+  });
+}
+
+let fsm: ProducerFSM;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  (prisma.conversationState.upsert as jest.Mock).mockResolvedValue({});
+  (prisma.conversationState.update as jest.Mock).mockResolvedValue({});
+  (prisma.supplier.findFirst as jest.Mock).mockResolvedValue(null);
+  (prisma.supplier.findMany as jest.Mock).mockResolvedValue([]);
+  (prisma.producerSupplier.findFirst as jest.Mock).mockResolvedValue(null);
+  (prisma.producerSupplier.create as jest.Mock).mockResolvedValue({});
+  (prisma.supplier.create as jest.Mock).mockResolvedValue({ id: SUPPLIER_ID, name: SUPPLIER_NAME });
+  mockUpdateSupplier.mockResolvedValue({});
+  (prisma as any).$transaction = jest.fn(async (fn: any) => fn(prisma));
+  fsm = new ProducerFSM();
+});
+
+// ── Cenários ──────────────────────────────────────────────────────────────────
+
+describe('handleAwaitingSupplierCategory — parse e persistência', () => {
+  it('Cenário 2: número "4" → salva ["defensivo"]', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, '4');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['defensivo'] },
+    });
+  });
+
+  it('Cenário 3: múltiplos números "1,3" → ["semente","foliar"]', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, '1,3');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['semente', 'foliar'] },
+    });
+  });
+
+  it('Cenário 4: texto canônico "Defensivo" → ["defensivo"]', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, 'Defensivo');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['defensivo'] },
+    });
+  });
+
+  it('Cenário 5: plural "Defensivos" → ["defensivo"]', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, 'Defensivos');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['defensivo'] },
+    });
+  });
+
+  it('Cenário 6: sem acento "calcario" → ["calcario"]', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, 'calcario');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['calcario'] },
+    });
+  });
+
+  it('Cenário 7: mistura número + texto "1, Defensivo" → ["semente","defensivo"]', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, '1, Defensivo');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['semente', 'defensivo'] },
+    });
+  });
+
+  it('Cenário 8: texto inválido "blablabla" → remostra lista e mantém estado', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, 'blablabla');
+
+    expect(mockUpdateSupplier).not.toHaveBeenCalled();
+    // remostra mensagem com a lista
+    const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+    expect(body).toMatch(/Não reconheci/);
+    expect(body).toContain('1 — Semente');
+    expect(body).toContain('4 — Defensivo');
+  });
+
+  it('Cenário 9: mistura válido+inválido "1, xyz" → salva ["semente"] com aviso', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, '1, xyz');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['semente'] },
+    });
+
+    const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+    expect(body).toMatch(/Não reconheci: xyz/);
+  });
+
+  it('duplicidade: "1,1,Semente,sementes" → ["semente"] (sem repetir)', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, '1,1,Semente,sementes');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['semente'] },
+    });
+  });
+
+  it('número fora do range (0 ou 99) e texto curto são ignorados', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, '0, 99, a');
+
+    // Tudo inválido → remostra a lista
+    expect(mockUpdateSupplier).not.toHaveBeenCalled();
+    const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+    expect(body).toMatch(/Não reconheci/);
+  });
+
+  it('sem contexto.availableCategories → ainda usa lista canônica como fallback', async () => {
+    // Cenário 1: produtor cadastrando supplier — availableCategories pode
+    // ter sido perdido do contexto (TTL, restart). Fallback é a lista canônica.
+    setupCategoryState({ availableCategories: undefined });
+    await fsm.handleMessage(PRODUCER_ID, '4');
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['defensivo'] },
+    });
+  });
+});
+
+describe('handleAwaitingSupplierCategory — UX da mensagem de sucesso', () => {
+  it('mostra LABEL legível no sucesso (não o value cru)', async () => {
+    setupCategoryState();
+    await fsm.handleMessage(PRODUCER_ID, '5'); // Calcário
+
+    expect(mockUpdateSupplier).toHaveBeenCalledWith({
+      where: { id: SUPPLIER_ID },
+      data: { categories: ['calcario'] },
+    });
+
+    // A mensagem de sucesso mostra o label legível com acento
+    const body = mockSendMessage.mock.calls.map((c) => c[0].body as string).join('\n');
+    expect(body).toContain('Calcário');
+  });
+});

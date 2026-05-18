@@ -1,0 +1,150 @@
+# CotaObra — Ambiente de desenvolvimento local
+# Uso:  docker compose -f docker-compose.dev.yml up -d
+# Para o repositório `cotaobra` (a ser criado em C:\Workstation\cotaobra).
+# Versão: 1.0 — 18/05/2026
+
+services:
+  # ---------------------------------------------------------
+  # Postgres 15 — banco transacional
+  # ---------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: cotaobra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cotaobra
+      POSTGRES_PASSWORD: cotaobra
+      POSTGRES_DB: cotaobra_dev
+    ports:
+      - "5433:5432"   # 5433 no host para não colidir com Postgres local de outro projeto
+    volumes:
+      - cotaobra_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cotaobra -d cotaobra_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------
+  # Redis 7 — cache + filas Bull
+  # ---------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: cotaobra-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - cotaobra_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------
+  # Evolution API — provider WhatsApp (self-hosted, dev)
+  # ---------------------------------------------------------
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: cotaobra-evolution
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Autenticação da API local de dev (NÃO usar em produção)
+      AUTHENTICATION_API_KEY: local-dev-key-change-me
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+
+      # Database (Evolution usa Postgres OU MongoDB; aqui SQLite local p/ simplicidade dev)
+      DATABASE_ENABLED: "false"
+
+      # Webhook URL — backend escuta aqui
+      # Em Windows/Mac: host.docker.internal aponta pra máquina host
+      # Em Linux puro: usar o IP da bridge docker (ex: 172.17.0.1)
+      WEBHOOK_GLOBAL_URL: http://host.docker.internal:3000/api/whatsapp/webhook
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_EVENTS_QRCODE_UPDATED: "true"
+      WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
+      WEBHOOK_EVENTS_MESSAGES_UPDATE: "true"
+      WEBHOOK_EVENTS_SEND_MESSAGE: "true"
+      WEBHOOK_EVENTS_CONNECTION_UPDATE: "true"
+
+      # Comportamento conservador (mitigação AUD-04)
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: 30
+
+      # Logs
+      LOG_LEVEL: ERROR
+      LOG_COLOR: "true"
+
+      # CORS / Server
+      SERVER_TYPE: http
+      SERVER_PORT: 8080
+      SERVER_URL: http://localhost:8080
+      CORS_ORIGIN: "*"
+      CORS_METHODS: GET,POST,PUT,DELETE,PATCH
+    volumes:
+      - cotaobra_evolution_data:/evolution/instances
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Permite container acessar host (Linux)
+
+  # ---------------------------------------------------------
+  # MinIO — storage S3-compatible para PDFs de Ordem de Compra
+  # ---------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: cotaobra-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # Console web
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin-dev
+    volumes:
+      - cotaobra_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------
+  # MinIO bucket bootstrap (cria buckets na primeira subida)
+  # ---------------------------------------------------------
+  minio-setup:
+    image: minio/mc:latest
+    container_name: cotaobra-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin-dev;
+      mc mb --ignore-existing local/cotaobra-purchase-orders;
+      mc mb --ignore-existing local/cotaobra-uploads;
+      mc anonymous set download local/cotaobra-purchase-orders;
+      echo '✓ MinIO buckets criados';
+      exit 0;
+      "
+
+  # ---------------------------------------------------------
+  # Mailpit — captura emails em dev (SMTP local + web UI)
+  # ---------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: cotaobra-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI — abrir http://localhost:8025
+
+volumes:
+  cotaobra_postgres_data:
+  cotaobra_redis_data:
+  cotaobra_evolution_data:
+  cotaobra_minio_data:

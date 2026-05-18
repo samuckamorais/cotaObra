@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /lpcotaobra2026
+Disallow: /dashboard
+Disallow: /api/
+
+Sitemap: https://www.cotaobra.app/sitemap.xml

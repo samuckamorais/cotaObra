@@ -1,0 +1,1 @@
+ALTER TABLE "quote_tokens" ADD COLUMN IF NOT EXISTS "cancelled" BOOLEAN NOT NULL DEFAULT false;

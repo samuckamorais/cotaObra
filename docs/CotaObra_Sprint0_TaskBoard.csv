@@ -1,0 +1,220 @@
+Task ID,Title,Type,Story Points,Priority,Module,Status,Sprint,Dependencies,Owner Suggested,Body
+CO-0-01,Criar repositório cotaobra por fork preservando histórico,FORK-COPY,1,P0,infra,Todo,Sprint 0,,Tech Lead,"## User Story
+Como tech lead, eu quero um repositório `cotaobra` independente do `cotaAgro` mas com histórico preservado, para que eu possa fazer cherry-pick de fixes futuros nos dois sentidos.
+
+## Critérios de Aceitação
+- Repo `github.com/samuckamorais/cotaobra` (privado) criado com histórico completo do `cotaagro`.
+- Remote `upstream-cotaagro` apontando para o original.
+- Branch protection no `main`: require PR, require CI, no force push.
+- Branch `sprint-0/refactor-cotaobra` criado.
+
+## DoD
+- Repo acessível pelo time, CI verde no primeiro push, README com swap rápido de FarmFlow → CotaObra.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-01"
+CO-0-02,Refactor de branding FarmFlow/farmflow → CotaObra/cotaobra,FORK-ADAPT,3,P0,backend+frontend+docs,Todo,Sprint 0,CO-0-01,Backend Sr + Frontend Sr,"## User Story
+Como usuário final, eu quero ver 'CotaObra' em todo lugar (logo, título, e-mails, mensagens WhatsApp) para que não haja confusão de marca durante o piloto.
+
+## Critérios de Aceitação
+- `git grep` por FarmFlow/farmflow/cotaagro retorna zero (exceto whitelist marcada com `// LEGACY:`).
+- Build backend e frontend continua passando.
+- 5 mensagens WhatsApp principais (messages.ts) revisadas manualmente para naturalidade em PT-BR.
+- Logo SVG, favicon, manifest PWA atualizados (placeholder OK no Sprint 0).
+
+## Notas técnicas
+- Script `scripts/rename-brand.sh` (find + sed em batches: ts, tsx, md, json, yml).
+- Whitelist de exclusões em CHANGELOG.md.
+
+## DoD
+- grep limpo, build verde, screenshots das 12 telas com nome novo, PR aprovado.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-02"
+CO-0-03,Deletar pasta legacy middlewares/ e ajustar imports,FORK-ADAPT,1,P0,backend,Todo,Sprint 0,CO-0-02,Backend Pleno,"## User Story
+Como dev novo no projeto, eu quero uma única pasta de middlewares para não importar do lugar errado.
+
+## Critérios de Aceitação
+- Pasta `backend/src/middlewares/` (com s) removida.
+- `npx tsc --noEmit` passa sem erro.
+- `git grep ""from.*middlewares/""` retorna zero.
+- Inspeção arquivo a arquivo antes de apagar para garantir paridade com `middleware/`.
+
+## DoD
+- Pasta removida, typecheck verde, suite de testes existente passa.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-03"
+CO-0-04,Renomear ProducerSettings → TenantSettings (Prisma),FORK-RENAME,2,P0,schema+backend,Todo,Sprint 0,CO-0-02,Backend Sr,"## User Story
+Como admin do tenant, eu quero que configurações (teto de aprovação, política de pagamento, provedor WhatsApp) sejam definidas por empresa, não por usuário.
+
+## Critérios de Aceitação
+- Modelo renomeado no `schema.prisma`, FK de `producerId` → `tenantId`.
+- Migration `rename-producer-settings-to-tenant-settings` aplica sem erro.
+- Service `producer-settings.service.ts` → `tenant-settings.service.ts`.
+- Seed atualizado.
+- Endpoint `/api/settings` retorna 200 com novo shape.
+
+## DoD
+- Migration em staging, endpoint testado, PR aprovado.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-04"
+CO-0-05,Remover modelo ProducerSupplier (junction obsoleta),FORK-ADAPT,2,P0,schema+backend,Todo,Sprint 0,CO-0-04,Backend Sr,"## User Story
+Como admin do tenant, eu quero fornecedores vinculados à construtora (não a um produtor específico), para que qualquer comprador veja a mesma carteira.
+
+## Critérios de Aceitação
+- `DROP TABLE producer_suppliers` aplicado via migration.
+- Locais que faziam `prisma.producerSupplier.*` refatorados para `prisma.supplier.findMany({ where: { tenantId } })`.
+- Endpoint `GET /api/producers/:id/suppliers` retorna 410 Gone com mensagem de deprecação.
+
+## DoD
+- Suite verde, endpoint deprecado, migration em staging.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-05"
+CO-0-06,Renomear producer.flow.ts → requester.flow.ts (FSM),FORK-RENAME,2,P0,backend/flows,Todo,Sprint 0,CO-0-02;CO-0-05,Backend Pleno,"## User Story
+Como dev, eu quero que a FSM do lado de quem solicita cotação se chame `requester` para refletir o domínio de construção.
+
+## Critérios de Aceitação
+- Arquivo, classe interna, exports e imports renomeados via VS Code rename symbol (F2).
+- 12 testes unit da FSM passam.
+- String `producer` zero nos identificadores (exceto LEGACY).
+- Atualizar `flows/index.ts`, `whatsapp.controller.ts`, jobs.
+
+## DoD
+- Testes verdes, grep limpo, PR mergeado.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-06"
+CO-0-07,Substituir lista de categorias e unidades (agro → construção),FORK-ADAPT,2,P0,backend/constants,Todo,Sprint 0,CO-0-02,Backend Pleno,"## User Story
+Como engenheiro/comprador, eu quero ver categorias e unidades do meu domínio (cimento, m³, saca) e não do agro.
+
+## Critérios de Aceitação
+- `material-categories.ts` substitui `supplier-categories.ts` com 17 categorias (cimento, agregados, aço, blocos, concreto, hidráulica, elétrica, gesso, revestimento, pintura, cobertura, esquadrias, impermeabilização, vidraçaria, ferramentas, madeira, outros).
+- `unit-normalizer.ts` aceita: un, pc, cx, pct, kg, t, m, m2, m3, ml, saca, fardo, rolo, l, gal, balde.
+- UI de cadastro de fornecedor mostra novas opções no multi-select.
+- Seed do banco usa novas categorias.
+
+## DoD
+- Testes unit cobrem 100% das unidades, screenshot do dropdown.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-07"
+CO-0-08,Apagar páginas Landing/PreLaunch/ComingSoon e ajustar menu Producers → Sites,FORK-ADAPT,1,P0,frontend,Todo,Sprint 0,CO-0-05,Frontend Pleno,"## User Story
+Como usuário, eu quero entrar direto na tela de login sem ver páginas de marketing do cotaAgro; o menu lateral deve mostrar 'Obras' em vez de 'Produtores'.
+
+## Critérios de Aceitação
+- Apagar `Landing.tsx`, `PreLaunch.tsx`, `ComingSoon.tsx`, `Producers.tsx` em `frontend/src/pages/`.
+- `/` redireciona para `/login`.
+- Menu lateral remove 'Produtores' e adiciona 'Obras' com placeholder 'Em construção' (rota `/sites`).
+- Imports legacy removidos do App.tsx e Sidebar.tsx.
+
+## DoD
+- Rotas funcionam, build verde, lint sem warnings.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-08"
+CO-0-09,Adaptar templates de e-mail (5) e mensagens WhatsApp (30+) para construção,FORK-ADAPT,3,P0,conteúdo+backend,Todo,Sprint 0,CO-0-02,Backend Pleno + PO,"## User Story
+Como construtora prospect, eu quero receber e-mails e mensagens WhatsApp que falem da realidade de construção civil, não de fazenda.
+
+## Critérios de Aceitação
+- 5 templates HTML de e-mail reescritos em `backend/src/templates/emails/`.
+- ~30 strings WhatsApp em `messages.ts` reescritas — namespaces `messages.requester.*` e `messages.supplier.*`.
+- 6 mensagens-chave redigidas como STRINGS PARAMETRIZADAS (ajuste Evolution, NÃO HSM Meta): cotacao_nova, cotacao_nova_multi_item, cotacao_followup, cotacao_resultado_vencedor, cotacao_resultado_perdedor, solicitacao_recebida.
+- Conteúdo aprovado por PO + 1 engenheiro de obra real (1 entrevista de 30min).
+
+## DoD
+- Snapshot tests dos templates, screenshot dos 5 e-mails renderizados em Mailpit local.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-09 (ajustada para Evolution)"
+CO-0-10,Aplicar 4 fixes CRITICAL do COTAGRO_AUDIT (AUD-01 a AUD-04),FORK-ADAPT,5,P0,backend+infra,Todo,Sprint 0,CO-0-04,Tech Lead + Backend Sr,"## User Story
+Como tech lead, eu quero importar para o fork as 4 correções críticas conhecidas para que o CotaObra não nasça com a mesma dívida.
+
+## Critérios de Aceitação (1 sub-AC por AUD)
+- **AUD-01:** Redlock em `consolidate-quote` e `expire-quote`; teste de concorrência com 3 instâncias passa.
+- **AUD-02:** field-encryption.service.ts usa IV aleatório por registro; migration re-encrypt em dados existentes (vazio no fork).
+- **AUD-03:** rate-limit aplica `${ip}+${tenantSlug}+${email}` como chave; pen test cross-tenant falha em bloquear conta alheia.
+- **AUD-04 (Evolution):** wrapper `sendWhatsApp` aplica rate limit conservador (30 msg/h por número nos primeiros 14d), delays randômicos (8-25s), abort após 3 erros 5xx consecutivos do Evolution.
+
+## DoD
+- 4 fixes mergeados em PRs separados, 4 testes regredores escritos, AUDIT_FIXES.md atualizado.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-10"
+CO-0-11,Configurar staging cotaobra.staging.app independente,NEW,2,P0,infra,Todo,Sprint 0,CO-0-02,Tech Lead,"## User Story
+Como time de dev, eu quero staging dedicado do CotaObra, totalmente isolado do staging do cotaAgro.
+
+## Critérios de Aceitação
+- `https://cotaobra.staging.app` retorna tela de login.
+- Banco `cotaobra_staging` isolado de `cotaagro_staging`.
+- Redis em namespace separado.
+- Sentry com projeto novo `cotaobra`.
+- DNS apontando, Traefik labels configuradas, HTTPS via Let's Encrypt.
+- `prisma migrate deploy` roda no startup do container.
+
+## DoD
+- URL acessível externamente, healthchecks (/health, /health/db, /health/redis) verdes.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-11"
+CO-0-12,Escrever 5 smoke tests E2E Playwright que bloqueiam merge,NEW,3,P0,testes,Todo,Sprint 0,CO-0-11,QA + Frontend Sr,"## User Story
+Como tech lead, eu quero 5 cenários E2E rodando em CI cobrindo os fluxos vitais para detectar regressões.
+
+## Cenários
+1. Login com usuário seed → dashboard carrega.
+2. Cadastrar fornecedor manualmente → aparece na lista.
+3. Cadastrar obra manualmente → aparece na lista.
+4. Criar cotação direta no painel (1 item + 1 fornecedor) → cotação salva.
+5. Abrir Settings, mudar `defaultExpiryHours` para 48 → settings persistem após reload.
+
+## Critérios de Aceitação
+- 5 testes Playwright passam em ≤ 5 minutos em CI.
+- PR bloqueado de merge se qualquer falhar.
+- Workflow `e2e.yml` no GitHub Actions só roda em PRs para `main`.
+- `retry: 2` para reduzir flakiness inicial.
+
+## DoD
+- Suite verde 3 runs consecutivos, documentação em `tests/e2e/README.md`.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-12"
+CO-0-13,Demo + Retrospectiva Sprint 0 + Refinement Sprint 1,NEW,1,P0,processo,Todo,Sprint 0,CO-0-01;CO-0-02;CO-0-03;CO-0-04;CO-0-05;CO-0-06;CO-0-07;CO-0-08;CO-0-09;CO-0-10;CO-0-11;CO-0-12;CO-0-14,PO + Tech Lead,"## User Story
+Como PO, eu quero demo de fim de sprint mostrando o ambiente funcionando para garantir prontidão para feature work do Sprint 1.
+
+## Critérios de Aceitação
+- Staging acessível via URL pública.
+- Login + 4 telas básicas navegáveis sem erro 500.
+- 5 smoke E2E passam.
+- CHANGELOG.md atualizado com tudo do Sprint 0.
+- Zero issues CRITICAL no Sentry.
+- Demo de 5min gravada e compartilhada.
+- Ata da retrospectiva em `docs/retros/sprint-0.md`.
+- Sprint 1 com 10+ tasks em DoR (Definition of Ready).
+
+## DoD
+- Vídeo demo + ata + board Sprint 1 populado.
+
+## Referência
+CotaObra_Backlog_PO_Senior_v2.md §Sprint 0 → CO-0-13"
+CO-0-14,Provisionar instância Evolution API + warming do número WhatsApp,NEW,2,P0,infra,Todo,Sprint 0,CO-0-11,Tech Lead + PO,"## User Story
+Como sistema, eu quero uma instância Evolution rodando no staging com 1 número dedicado conectado e 'aquecido' (warming) antes do go-live, para reduzir risco de bloqueio.
+
+## Critérios de Aceitação
+- Container Evolution rodando no VPS staging em porta interna (não exposta).
+- 1 número WhatsApp dedicado (chip novo) conectado via QR code.
+- Warming inicial: 7 dias antes do go-live mandar ~10 mensagens orgânicas/dia para PO + 2 testers reais.
+- Webhook do Evolution aponta para `https://cotaobra.staging.app/api/whatsapp/webhook` com signature verificada.
+- Healthcheck do provider integrado em `/health/whatsapp`.
+
+## Notas técnicas
+- Imagem: `atendai/evolution-api:latest`.
+- Auth via `AUTHENTICATION_API_KEY` (rotaciona em prod).
+- Volume persistente para `instances/`.
+
+## DoD
+- 'ping' via mensagem teste retorna; AUD-04 aplica rate limit corretamente.
+
+## Referência
+CotaObra_Roteiro_Desenvolvimento_Sprint0.md §2 + §4 (Dia 4)"

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
+
+    <!-- SEO -->
+    <title>CotaObra — Cotação de materiais de construção no WhatsApp</title>
+    <meta name="description" content="Mande sua lista no WhatsApp e receba cotações de vários fornecedores de materiais de construção. Comparativo lado a lado, fechamento em minutos." />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="CotaObra — Cotação de materiais de construção no WhatsApp" />
+    <meta property="og:description" content="Uma lista. Vários fornecedores. Menor preço corrigido no topo." />
+    <meta property="og:image" content="https://www.cotaobra.app/og-cotaobra.png" />
+    <meta property="og:url" content="https://www.cotaobra.app/" />
+    <meta property="og:site_name" content="CotaObra" />
+
+    <!-- Google Analytics 4 — configurar GA4_MEASUREMENT_ID pelo marketing antes de produção -->
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <!-- PWA -->
+    <meta name="theme-color" content="#1A5632" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CotaObra" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="manifest" href="/manifest.json" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Register Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker
+            .register('/service-worker.js')
+            .then((reg) => console.log('SW registered:', reg))
+            .catch((err) => console.log('SW registration failed:', err));
+        });
+      }
+    </script>
+  </body>
+</html>

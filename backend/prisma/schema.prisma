@@ -1,0 +1,722 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================================
+// MODELS
+// ===================================
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String // "Construtora Aurora Ltda"
+  slug      String   @unique // "aurora-demo"
+  cnpj      String? // CNPJ da construtora (opcional no MVP, exigido em produção)
+  email     String? // email principal do tenant
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  whatsappConfig        WhatsAppConfig?
+  users                 User[]
+  producers             Producer[] // LEGACY: mantido durante Sprint 0; será removido após migração para User+Site
+  suppliers             Supplier[]
+  quotes                Quote[]
+  proposals             Proposal[]
+  subscriptions         Subscription[]
+  conversationStates    ConversationState[]
+  conversationMetrics   ConversationMetric[]
+  experiments           Experiment[]
+  experimentAssignments ExperimentAssignment[]
+  quoteTokens           QuoteToken[]
+  settings              TenantSettings?
+
+  @@index([slug])
+  @@index([active])
+  @@map("tenants")
+}
+
+model WhatsAppConfig {
+  id       String @id @default(uuid())
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String @unique
+
+  // Provider
+  provider String // "twilio" | "evolution" | "meta"
+
+  // Credenciais (CRIPTOGRAFADAS!)
+  credentials Json // { accountSid, authToken, ... } encrypted
+
+  // Status
+  isConnected     Boolean   @default(false)
+  lastHealthCheck DateTime?
+  connectionError String?
+
+  // Webhook
+  webhookUrl    String?
+  webhookSecret String? // Para validar webhooks
+
+  // Estatísticas (cache)
+  messagesSentToday     Int       @default(0)
+  messagesReceivedToday Int       @default(0)
+  lastMessageAt         DateTime?
+
+  // Auditoria
+  configuredBy String? // userId
+  configuredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([provider])
+  @@index([isConnected])
+  @@map("whatsapp_configs")
+}
+
+model WhatsAppConfigLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  action      String // "created" | "updated" | "deleted" | "reconnected" | "tested"
+  changes     Json // O que mudou
+  performedBy String // userId
+  ipAddress   String?
+  userAgent   String?
+  success     Boolean  @default(true)
+  errorMsg    String?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([performedBy])
+  @@map("whatsapp_config_logs")
+}
+
+model Producer {
+  id                   String   @id @default(uuid())
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId             String
+  name                 String
+  cpfCnpj              String // CPF ou CNPJ (apenas números)
+  stateRegistration    String? // Inscrição estadual (opcional)
+  farm                 String? // nome da fazenda (opcional)
+  city                 String // município
+  phone                String // número WhatsApp com DDI, ex: +5564999999999
+  region               String
+  lastQuotePreferences Json? // Última cotação para repetir (product, quantity, unit, region, deadline)
+  preferences          Json? // Preferências gerais do produtor (notificações, etc)
+  consentAt            DateTime? // Data do consentimento LGPD
+  consentVersion       String? // Versão do termo aceito
+  cpfCnpjHash          String? // Hash SHA-256 do CPF/CNPJ para busca indexada
+  cpfCnpjEncrypted     String? // CPF/CNPJ criptografado (AES-256-GCM)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // LEGACY (Sprint 0): este modelo será removido após migração completa para User+Site.
+  // CO-0-04: ProducerSettings promovido a TenantSettings.
+  // CO-0-05: ProducerSupplier eliminado; vinculação fornecedor↔construtora é
+  //          direta via Supplier.tenantId (1:N).
+  subscription      Subscription?
+  quotes            Quote[]
+  conversationState ConversationState?
+  user              User?
+  quoteTokens       QuoteToken[]
+  quoteTemplates    QuoteTemplate[]
+  referrals         Referral[]
+
+  @@unique([tenantId, cpfCnpj])
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+  @@index([phone])
+  @@index([cpfCnpj])
+  @@index([cpfCnpjHash])
+  @@map("producers")
+}
+
+model QuoteTemplate {
+  id            String   @id @default(uuid())
+  producer      Producer @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  producerId    String
+  name          String
+  items         Json
+  region        String?
+  freight       String?
+  paymentTerms  String?
+  supplierScope String?  @default("ALL")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([producerId])
+  @@map("quote_templates")
+}
+
+model Supplier {
+  id                String   @id @default(uuid())
+  tenant            Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId          String? // nullable para fornecedores da rede
+  name              String
+  phone             String
+  company           String? // nome da empresa (opcional)
+  email             String? // e-mail do fornecedor (opcional)
+  regions           String[] // lista de regiões atendidas
+  categories        String[] // ex: ["sementes", "fertilizantes", "defensivos"]
+  isNetworkSupplier Boolean  @default(false) // true = rede da plataforma, false = rede do produtor
+  rating            Float    @default(0.0) // rating médio (0-5), calculado baseado em propostas aceitas
+  totalProposals    Int      @default(0) // total de propostas enviadas
+  acceptedProposals Int      @default(0) // total de propostas aceitas
+  consentAt         DateTime? // Data do consentimento LGPD
+  consentVersion    String? // Versão do termo aceito
+  cpfCnpjHash       String? // Hash SHA-256 do CPF/CNPJ para busca indexada
+  cpfCnpjEncrypted  String? // CPF/CNPJ criptografado (AES-256-GCM)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // CO-0-05: campo `producers` (ProducerSupplier[]) removido. Vínculo construtora↔fornecedor
+  // agora é direto via Supplier.tenantId (1:N), não mais via tabela join.
+  proposals             Proposal[]
+  proposalTokens        ProposalToken[]
+  quoteNotifications    QuoteSupplierNotification[]
+  conversationState     SupplierConversationState?
+
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+  @@index([phone])
+  @@index([rating])
+  @@index([isNetworkSupplier])
+  @@index([cpfCnpjHash])
+  @@map("suppliers")
+}
+
+// CO-0-05: model ProducerSupplier removido.
+// Justificativa: construtora não tem fornecedores "preferidos por usuário"; é por tenant.
+// Substituído pela relação direta Supplier.tenantId (1:N).
+// Migration: 20260518000010_co_0_05_drop_producer_supplier.
+
+model Quote {
+  id               String        @id @default(uuid())
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId         String
+  producer         Producer      @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  producerId       String
+  category         String? // categoria do produto (ex: sementes, fertilizantes)
+  product          String? // deprecated — mantido para compatibilidade com cotações antigas
+  quantity         String? // deprecated — mantido para compatibilidade com cotações antigas
+  unit             String? // deprecated — mantido para compatibilidade com cotações antigas
+  region           String
+  deadline         DateTime
+  observations     String?
+  freight          String? // CIF (fornecedor entrega) | FOB (produtor busca)
+  paymentTerms     String? // Forma de pagamento desejada (ex: à vista, 30/60/90 dias)
+  supplierScope    SupplierScope // MINE | NETWORK | ALL
+  status           QuoteStatus // PENDING | COLLECTING | SUMMARIZED | CLOSED | EXPIRED
+  expiresAt        DateTime // quando parar de aceitar propostas
+  closedSupplierId String? // vencedor no modo "melhor preço total"
+  processedBy      String? // qual job processou: 'consolidate' | 'expire'
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  proposals             Proposal[]
+  items                 QuoteItem[]
+  proposalTokens        ProposalToken[]
+  supplierNotifications QuoteSupplierNotification[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([status])
+  @@index([producerId])
+  @@index([producerId, createdAt])
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id                String  @id @default(uuid())
+  quote             Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId           String
+  product           String
+  quantity          Float
+  unit              String
+  observation       String? // observação específica deste item
+  activeIngredient  String? // princípio ativo (apenas para Defensivos)
+  winningSupplierId String? // vencedor no modo "por item"
+
+  proposals ProposalItem[]
+
+  @@index([quoteId])
+  @@map("quote_items")
+}
+
+model Proposal {
+  id            String   @id @default(uuid())
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId      String
+  quote         Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId       String
+  supplier      Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId    String
+  price         Float // cache da soma dos ProposalItems (ou preço único para cotações legadas)
+  totalPrice    Float // idem
+  paymentTerms  String
+  deliveryDays  Int
+  observations  String?
+  isOwnSupplier Boolean  @default(false)
+  isPartial     Boolean  @default(false) // true quando fornecedor não cotou todos os itens
+  createdAt     DateTime @default(now())
+
+  items ProposalItem[]
+
+  @@index([tenantId])
+  @@index([quoteId])
+  @@index([createdAt])
+  @@index([quoteId, createdAt])
+  @@map("proposals")
+}
+
+model ProposalItem {
+  id          String    @id @default(uuid())
+  proposal    Proposal  @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposalId  String
+  quoteItem   QuoteItem @relation(fields: [quoteItemId], references: [id], onDelete: Cascade)
+  quoteItemId String
+  unitPrice   Float
+  totalPrice  Float
+
+  @@unique([proposalId, quoteItemId])
+  @@index([proposalId])
+  @@index([quoteItemId])
+  @@map("proposal_items")
+}
+
+model SupplierConversationState {
+  id         String   @id @default(uuid())
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId String   @unique // um estado ativo por fornecedor
+  tenantId   String?  // herdado do Supplier (nullable para fornecedores da rede)
+  quoteId    String?
+  step       String   // SupplierState: SUPPLIER_AWAITING_RESPONSE, etc.
+  context    Json     // ConversationContext serializado
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([supplierId, quoteId])
+  @@index([expiresAt])
+  @@map("supplier_conversation_states")
+}
+
+model QuoteSupplierNotification {
+  id         String   @id @default(uuid())
+  quote      Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId    String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId String
+  notifiedAt     DateTime  @default(now())
+  followUpCount  Int       @default(0)
+  lastFollowUpAt DateTime?
+
+  // FEAT-EARLY-CLOSE — rastreio da resposta do fornecedor a uma cotação.
+  // Default null (não respondeu ainda). Preenchido quando o fornecedor
+  // envia proposta ('PROPOSAL') ou recusa formalmente ('DECLINED').
+  // Permite consolidação antecipada quando todos os convidados
+  // responderam, sem esperar o expiresAt.
+  respondedAt    DateTime?
+  responseType   String?
+
+  @@unique([quoteId, supplierId])
+  @@index([quoteId])
+  @@map("quote_supplier_notifications")
+}
+
+model Lead {
+  id          String   @id @default(uuid())
+  name        String
+  whatsapp    String
+  email       String
+  source      String   @default("website")
+  lgpdConsent Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([email])
+  @@index([source])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+model QuoteToken {
+  id          String    @id @default(uuid())
+  token       String    @unique
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  producer    Producer  @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  producerId  String
+  used        Boolean   @default(false)
+  cancelled   Boolean   @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([token])
+  @@index([producerId])
+  @@map("quote_tokens")
+}
+
+model ProposalToken {
+  id         String   @id @default(uuid())
+  token      String   @unique
+  quote      Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId    String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId String
+  used       Boolean  @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([token])
+  @@index([quoteId, supplierId])
+  @@map("proposal_tokens")
+}
+
+model Subscription {
+  id          String   @id @default(uuid())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  producer    Producer @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  producerId  String   @unique
+  plan        PlanType // BASIC | PRO | ENTERPRISE
+  quotesLimit Int // cotações permitidas/mês
+  quotesUsed  Int      @default(0)
+  startDate   DateTime
+  endDate     DateTime
+  active      Boolean  @default(true)
+
+  @@index([tenantId])
+  @@map("subscriptions")
+}
+
+model ConversationState {
+  id         String   @id @default(uuid())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId   String
+  producer   Producer @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  producerId String   @unique
+  step       String // ex: AWAITING_PRODUCT, AWAITING_QUANTITY, etc.
+  context    Json // dados parciais da cotação em andamento
+  updatedAt  DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("conversation_states")
+}
+
+model ConversationMetric {
+  id            String   @id @default(uuid())
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId      String
+  userId        String // producerId or supplierId
+  userType      String // "producer" or "supplier"
+  eventType     String // message_sent, message_received, state_changed, error, quote_completed, quote_abandoned
+  state         String? // current FSM state
+  previousState String? // previous FSM state (for transitions)
+  errorType     String? // error category if eventType = error
+  metadata      Json? // additional event data
+  durationMs    Int? // time spent in state (for state_changed events)
+  timestamp     DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, timestamp])
+  @@index([userId])
+  @@index([userType])
+  @@index([eventType])
+  @@index([timestamp])
+  @@index([state])
+  @@map("conversation_metrics")
+}
+
+model Experiment {
+  id          String    @id @default(uuid())
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  name        String // feature flag name
+  description String?
+  variants    Json // array of variant configs: [{ name: "control", weight: 50 }, { name: "treatment", weight: 50 }]
+  active      Boolean   @default(true)
+  startDate   DateTime  @default(now())
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  assignments ExperimentAssignment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([name])
+  @@index([active])
+  @@map("experiments")
+}
+
+model ExperimentAssignment {
+  id           String     @id @default(uuid())
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId     String
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  experimentId String
+  userId       String // producerId or supplierId
+  userType     String // "producer" or "supplier"
+  variant      String // which variant this user is assigned to
+  assignedAt   DateTime   @default(now())
+
+  @@unique([experimentId, userId, userType])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([experimentId])
+  @@map("experiment_assignments")
+}
+
+model User {
+  id         String    @id @default(uuid())
+  name       String
+  email      String    @unique
+  password   String // hash bcrypt
+  role       UserRole  @default(USER)
+  active     Boolean   @default(true)
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId   String?
+  producer   Producer? @relation(fields: [producerId], references: [id], onDelete: SetNull)
+  producerId      String?   @unique // um producer → no máximo um user
+  twoFactorEnabled Boolean  @default(false)
+  // FEAT-008 (FF-BE-031) — secret TOTP em base32. NÃO retornar em nenhuma
+  // response após o setup-confirm. Validate via otplib.authenticator.verify
+  // (janela de 1 step = ±30s, defaults da lib).
+  twoFactorSecret  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // FEAT-008 — Super Admin Global + Cadastro Direto
+  // mustChangePassword=true em criação por super admin OU reset de senha.
+  // Só vira false quando o próprio user troca via /api/auth/change-password.
+  // Default false preserva usuários existentes pré-feature (RN-12).
+  mustChangePassword  Boolean   @default(false)
+  passwordChangedAt   DateTime?
+  // Quem (super admin) criou/resetou a senha — para auditoria. SetNull
+  // se o super admin for inativado, pra não quebrar a referência histórica.
+  passwordCreatedBy   User?     @relation("UserPasswordCreator", fields: [passwordCreatedById], references: [id], onDelete: SetNull)
+  passwordCreatedById String?
+  passwordCreatorOf   User[]    @relation("UserPasswordCreator")
+
+  // AuditLog: ações executadas por este user (relevante para SUPER_ADMIN)
+  auditLogs        AuditLog[]   @relation("AuditLogActor")
+
+  permissions      Permission[]
+  reportSchedules  ReportSchedule[]
+
+  @@index([email])
+  @@index([tenantId])
+  @@index([producerId])
+  @@index([passwordCreatedById])
+  @@map("users")
+}
+
+/// FEAT-008 — AuditLog imutável de ações sensíveis (especialmente SUPER_ADMIN).
+/// Toda ação em /api/admin/* gera entrada aqui (RN-07). Não há delete físico.
+model AuditLog {
+  id          String   @id @default(cuid())
+  // Ator: super admin (ou outro user privilegiado) que executou a ação.
+  userId      String
+  user        User     @relation("AuditLogActor", fields: [userId], references: [id])
+  // Ex: "create_user", "create_user_with_custom_password", "reset_password",
+  //     "deactivate_user", "deactivate_tenant", "promote_to_super_admin",
+  //     "view_tenant_data".
+  action      String
+  // Tipo do recurso impactado: "Tenant", "User", "Quote", etc.
+  targetType  String?
+  targetId    String?
+  // Tenant impactado pela ação (pode ser != do tenant do ator se cross-tenant).
+  tenantId    String?
+  // Obrigatório em ações sensíveis (>= 10 chars) — RN-08.
+  reason      String?
+  // Snapshot do request relevante. ATENÇÃO: NUNCA persistir password/token
+  // em claro; sanitizador remove esses campos antes de gravar (RN-02).
+  payload     Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([targetType, targetId])
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+model TenantSettings {
+  id        String @id @default(uuid())
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId  String @unique
+
+  // ----- Campos herdados do ProducerSettings (cotaAgro) -----
+  // Mantidos para compatibilidade com services existentes; serão consolidados em Sprint 1+.
+  proposalLinkExpiryHours Int           @default(24) // Tempo de expiração do link de proposta (horas)
+  quoteDeadlineDays       Int           @default(3) // Prazo padrão de entrega sugerido (dias)
+  defaultSupplierScope    SupplierScope @default(ALL) // Escopo padrão de fornecedores (MINE/NETWORK/ALL)
+  maxItemsPerQuote        Int           @default(10) // Limite máximo de itens por cotação
+  winnerNotificationType  String        @default("NONE") // Notificação automática ao vencedor
+  quoteExpiryHours        Int           @default(2) // Tempo de expiração da cotação em horas
+
+  // ----- Campos novos do CotaObra (Sprint 0+) -----
+  // Aliases semânticos das colunas acima (defaultExpiryHours = quoteExpiryHours,
+  // defaultDeadlineDays = quoteDeadlineDays). Mantidos separados para o caso de
+  // futuro split por contexto (cotação vs ordem de compra).
+  defaultExpiryHours Int @default(24) // Expiração padrão de cotação em horas (CotaObra: 24h)
+  defaultDeadlineDays Int @default(5) // Prazo padrão de entrega (CotaObra: 5 dias)
+
+  // Teto de aprovação: cotações com correctedTotal acima deste valor exigem aprovação
+  // do diretor (workflow Approval, Sprint 2). null = sem teto (auto-aprovado).
+  approvalThreshold Decimal? @db.Decimal(14, 2)
+
+  // Política de pagamento usada pelo pricing-engine para calcular preço corrigido:
+  //   { monthlyRate: 0.01, dailyPenalty: 0.005 }
+  paymentPolicy Json?
+
+  // Notificar automaticamente o fornecedor vencedor após fechamento da cotação.
+  autoNotifyWinner Boolean @default(true)
+
+  // Provider de WhatsApp default deste tenant (override do env).
+  // null = usa env global. Útil para futuro multi-provider por tenant ENTERPRISE.
+  whatsappProvider String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenant_settings")
+}
+
+model Permission {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  resource  Resource // quotes, suppliers, producers, users, dashboard
+  canView   Boolean  @default(false)
+  canCreate Boolean  @default(false)
+  canEdit   Boolean  @default(false)
+  canDelete Boolean  @default(false)
+
+  @@unique([userId, resource])
+  @@map("permissions")
+}
+
+model ReportSchedule {
+  id         String    @id @default(uuid())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  tenantId   String
+  reportType String
+  frequency  String    @default("weekly")
+  format     String    @default("json")
+  recipients String[]
+  nextRunAt  DateTime
+  lastRunAt  DateTime?
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([nextRunAt])
+  @@map("report_schedules")
+}
+
+model Referral {
+  id            String    @id @default(uuid())
+  referrer      Producer  @relation(fields: [referrerId], references: [id], onDelete: Cascade)
+  referrerId    String
+  referredEmail String
+  referredId    String?
+  code          String    @unique
+  status        String    @default("pending")
+  rewardClaimed Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  activatedAt   DateTime?
+
+  @@index([referrerId])
+  @@map("referrals")
+}
+
+// FF-BE-011 — Mapeamento Produto → Categoria configurável.
+// Global (não por tenant) — admin gerencia via CRUD. Cache em memória
+// no service com TTL 5 min. Keyword é guardada normalizada (lowercase
+// + sem acentos) para match consistente. Category usa o label canônico
+// das constantes (Semente, Fertilizante, ...).
+model ProductCategoryMapping {
+  id        String   @id @default(cuid())
+  keyword   String   @unique
+  category  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@map("product_category_mappings")
+}
+
+// FF-BE-009 — Tabela de eventos do funil conversacional.
+// Fonte de verdade para o dashboard /reports/funnel e para detecção de
+// abandono. Independente do ConversationMetric (que segue para outras
+// métricas). Indexada para 3 padrões de leitura: por produtor (drop-off
+// individual), por evento (volumetria) e por estado destino (job de
+// abandono identifica quem está em estados não-IDLE).
+model FSMEvent {
+  id         String   @id @default(cuid())
+  producerId String
+  timestamp  DateTime @default(now())
+  eventType  String
+  fromState  String?
+  toState    String?
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([producerId, timestamp])
+  @@index([eventType, timestamp])
+  @@index([toState, timestamp])
+  @@map("fsm_events")
+}
+
+// ===================================
+// ENUMS
+// ===================================
+
+enum SupplierScope {
+  MINE // apenas fornecedores do produtor
+  NETWORK // apenas fornecedores da rede
+  ALL // todos (próprios + rede)
+}
+
+enum QuoteStatus {
+  PENDING // cotação criada, ainda não disparada
+  COLLECTING // cotação disparada, aguardando propostas
+  SUMMARIZED // propostas consolidadas, aguardando escolha
+  CLOSED // cotação fechada com fornecedor
+  EXPIRED // prazo expirado
+}
+
+enum PlanType {
+  BASIC // plano básico
+  PRO // plano profissional
+  ENTERPRISE // plano empresarial
+}
+
+enum UserRole {
+  SUPER_ADMIN // FEAT-008 — operador da plataforma (cross-tenant). tenantId pode ser null.
+  ADMIN       // acesso total dentro do tenant
+  USER        // acesso baseado em permissões
+}
+
+enum Resource {
+  DASHBOARD
+  QUOTES
+  SUPPLIERS
+  PRODUCERS
+  SUBSCRIPTIONS
+  USERS
+  WHATSAPP_CONFIG
+  REPORTS
+}

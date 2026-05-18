@@ -1,0 +1,397 @@
+import { ProducerFSM, isStatusCheckIntent } from '../../../src/flows/requester.flow';
+import { whatsappService } from '../../../src/modules/whatsapp/whatsapp.service';
+import { prisma } from '../../../src/config/database';
+import { Messages } from '../../../src/flows/messages';
+import { QuoteStatusService } from '../../../src/services/quote-status.service';
+import { StatusCheckRateLimit } from '../../../src/services/status-rate-limit.service';
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
+
+jest.mock('../../../src/modules/whatsapp/whatsapp.service', () => ({
+  whatsappService: { sendMessage: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/config/database', () => ({
+  prisma: {
+    producer: {
+      findUniqueOrThrow: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    conversationState: { upsert: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+    quote: { findMany: jest.fn() },
+  },
+}));
+
+jest.mock('../../../src/utils/logger', () => ({
+  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logWithContext: jest.fn(),
+}));
+
+jest.mock('../../../src/services/metrics.service', () => ({
+  metricsService: { trackEvent: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/services/nlu-extractor.service', () => ({
+  nluExtractorService: { extract: jest.fn().mockResolvedValue(null), extractMultipleFields: jest.fn().mockReturnValue({}) },
+}));
+
+jest.mock('../../../src/services/openai.service', () => ({
+  openaiService: { extractContactFromText: jest.fn() },
+}));
+
+jest.mock('../../../src/services/contact-extractor.service', () => ({
+  contactExtractorService: { extractContactData: jest.fn(), isVCard: jest.fn().mockReturnValue(false) },
+}));
+
+jest.mock('../../../src/services/supplier-notification.service', () => ({
+  supplierNotificationService: { sendProposalRankingFeedback: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('../../../src/services/producer-settings.service', () => ({
+  ProducerSettingsService: {
+    getOrCreate: jest.fn().mockResolvedValue({
+      quoteExpiryHours: 2,
+      proposalLinkExpiryHours: 24,
+      defaultSupplierScope: 'ALL',
+      maxItemsPerQuote: 20,
+      quoteDeadlineDays: 7,
+    }),
+  },
+}));
+
+jest.mock('../../../src/services/quote-token.service', () => ({
+  QuoteTokenService: {
+    generateFormUrl: jest.fn().mockResolvedValue('https://example.com/cotacao/test'),
+    cancelByProducer: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock('../../../src/jobs/dispatch-quote.job', () => ({
+  dispatchQuoteJob: jest.fn().mockResolvedValue(0),
+}));
+
+jest.mock('../../../src/utils/validators', () => ({
+  parseDeadline: jest.fn(),
+}));
+
+jest.mock('../../../src/services/quote-status.service');
+jest.mock('../../../src/services/status-rate-limit.service');
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const mockSendMessage = whatsappService.sendMessage as jest.Mock;
+const mockFindProducer = prisma.producer.findUniqueOrThrow as jest.Mock;
+const mockUpsertState = prisma.conversationState.upsert as jest.Mock;
+const mockGetActiveQuotes = QuoteStatusService.getActiveQuotes as jest.Mock;
+const mockRateCheck = StatusCheckRateLimit.check as jest.Mock;
+
+const PRODUCER_ID = 'prod-123';
+const PHONE = '+5564999999999';
+const TENANT_ID = 'tenant-abc';
+
+function setupProducer(step: string, context: Record<string, unknown> = {}) {
+  mockFindProducer.mockImplementation(async (args: any) => {
+    if (args?.select?.tenantId) return { tenantId: TENANT_ID };
+    return {
+      id: PRODUCER_ID,
+      phone: PHONE,
+      name: 'João',
+      tenantId: TENANT_ID,
+      lastQuotePreferences: null,
+      conversationState: { step, context },
+      subscription: { id: 'sub-1', quotesUsed: 0, quotesLimit: 100 },
+    };
+  });
+  (prisma.conversationState.findUnique as jest.Mock).mockResolvedValue({
+    step,
+    context,
+    producerId: PRODUCER_ID,
+    updatedAt: new Date(),
+  });
+}
+
+let fsm: ProducerFSM;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUpsertState.mockResolvedValue({});
+  (prisma.conversationState.update as jest.Mock).mockResolvedValue({});
+  mockRateCheck.mockResolvedValue({ allowed: true, count: 1 });
+  fsm = new ProducerFSM();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isStatusCheckIntent — pure function
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('isStatusCheckIntent', () => {
+  it.each([
+    ['status'],
+    ['Status'],
+    ['STATUS'],
+    ['andamento'],
+    ['propostas'],
+    ['progresso'],
+    ['ver status'],
+    ['ver andamento'],
+    ['como está minha cotação'],
+    ['como esta minha cotacao status'],
+    ['como anda a cotação?'],
+    ['acompanhar cotação'],
+    ['acompanhar propostas'],
+  ])('reconhece "%s" como intent de status', (msg) => {
+    expect(isStatusCheckIntent(msg)).toBe(true);
+  });
+
+  it.each([
+    [''],
+    ['cotação'], // Não conflita: continua sendo gatilho de nova cotação
+    ['cotacao'],
+    ['nova cotação'],
+    ['quero fazer uma cotação'],
+    ['olá'],
+    ['cancelar'],
+    ['ajuda'],
+    ['1'],
+    ['2'],
+    ['fornecedor'],
+  ])('NÃO reconhece "%s" como intent de status', (msg) => {
+    expect(isStatusCheckIntent(msg)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-04 — sem cotação ativa
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CA-04 — sem cotação ativa', () => {
+  it('responde NO_ACTIVE_QUOTE quando não há cotações em andamento', async () => {
+    setupProducer('IDLE');
+    mockGetActiveQuotes.mockResolvedValue([]);
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: Messages.NO_ACTIVE_QUOTE }),
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-02 — uma cotação ativa
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CA-02 — uma cotação ativa', () => {
+  it('responde com 0 de N quando ainda não há propostas', async () => {
+    setupProducer('IDLE');
+    mockGetActiveQuotes.mockResolvedValue([
+      {
+        quoteId: 'q-1',
+        summary: 'Sementes — Soja',
+        respondedCount: 0,
+        totalSuppliers: 5,
+        expiresAt: new Date(Date.now() + 2 * 3_600_000),
+      },
+    ]);
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    const call = mockSendMessage.mock.calls.find((c) =>
+      c[0].body.includes('Andamento da sua cotação'),
+    );
+    expect(call).toBeDefined();
+    expect(call?.[0].body).toContain('0 de 5');
+  });
+
+  it('responde com contagem parcial quando algumas propostas chegaram', async () => {
+    setupProducer('IDLE');
+    mockGetActiveQuotes.mockResolvedValue([
+      {
+        quoteId: 'q-1',
+        summary: 'Sementes — Soja',
+        respondedCount: 3,
+        totalSuppliers: 5,
+        expiresAt: new Date(Date.now() + 2 * 3_600_000),
+      },
+    ]);
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    const call = mockSendMessage.mock.calls.find((c) =>
+      c[0].body.includes('Andamento da sua cotação'),
+    );
+    expect(call?.[0].body).toContain('*3 de 5*');
+    // CA-03: nenhum nome de fornecedor ou preço
+    expect(call?.[0].body).not.toMatch(/R\$\s*\d/);
+    expect(call?.[0].body).not.toMatch(/fornecedor [A-Z]/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-05 — múltiplas cotações
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CA-05 — múltiplas cotações', () => {
+  const mockTwoActiveQuotes = () => [
+    {
+      quoteId: 'q-1',
+      summary: 'Sementes — Soja',
+      respondedCount: 3,
+      totalSuppliers: 5,
+      expiresAt: new Date(Date.now() + 6 * 3_600_000),
+    },
+    {
+      quoteId: 'q-2',
+      summary: 'Fertilizantes — NPK',
+      respondedCount: 1,
+      totalSuppliers: 4,
+      expiresAt: new Date(Date.now() + 24 * 3_600_000),
+    },
+  ];
+
+  it('lista cotações numeradas e transiciona para AWAITING_QUOTE_STATUS_CHOICE', async () => {
+    setupProducer('IDLE');
+    mockGetActiveQuotes.mockResolvedValue(mockTwoActiveQuotes());
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    const sentBody = mockSendMessage.mock.calls[0][0].body as string;
+    expect(sentBody).toContain('2 cotações');
+    expect(sentBody).toContain('*1.*');
+    expect(sentBody).toContain('*2.*');
+
+    expect(mockUpsertState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          step: 'AWAITING_QUOTE_STATUS_CHOICE',
+          context: expect.objectContaining({
+            activeQuoteIds: ['q-1', 'q-2'],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('escolha "1" mostra detalhes da primeira cotação e volta para IDLE', async () => {
+    setupProducer('AWAITING_QUOTE_STATUS_CHOICE', { activeQuoteIds: ['q-1', 'q-2'] });
+    mockGetActiveQuotes.mockResolvedValue(mockTwoActiveQuotes());
+
+    await fsm.handleMessage(PRODUCER_ID, '1');
+
+    const detailMsg = mockSendMessage.mock.calls.find((c) =>
+      c[0].body.includes('Sementes — Soja'),
+    );
+    expect(detailMsg).toBeDefined();
+    expect(detailMsg?.[0].body).toContain('*3 de 5*');
+
+    expect(mockUpsertState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ step: 'IDLE' }),
+      }),
+    );
+  });
+
+  it('escolha inválida (fora do range) pede nova entrada sem mudar estado', async () => {
+    setupProducer('AWAITING_QUOTE_STATUS_CHOICE', { activeQuoteIds: ['q-1', 'q-2'] });
+
+    await fsm.handleMessage(PRODUCER_ID, '5');
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining('Responda com o número') }),
+    );
+    expect(mockUpsertState).not.toHaveBeenCalled();
+  });
+
+  it('cotação escolhida que não está mais ativa retorna mensagem coerente', async () => {
+    setupProducer('AWAITING_QUOTE_STATUS_CHOICE', { activeQuoteIds: ['q-1', 'q-2'] });
+    // só q-2 ainda existe — q-1 expirou entre listagem e escolha
+    mockGetActiveQuotes.mockResolvedValue([
+      {
+        quoteId: 'q-2',
+        summary: 'Fertilizantes — NPK',
+        respondedCount: 1,
+        totalSuppliers: 4,
+        expiresAt: new Date(),
+      },
+    ]);
+
+    await fsm.handleMessage(PRODUCER_ID, '1');
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining('não está mais ativa') }),
+    );
+    expect(mockUpsertState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ step: 'IDLE' }),
+      }),
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-06 — rate limit
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CA-06 — rate limit', () => {
+  it('responde STATUS_CHECK_RATE_LIMITED quando limite excedido', async () => {
+    setupProducer('IDLE');
+    mockRateCheck.mockResolvedValue({ allowed: false, count: 6, retryAfterSec: 1800 });
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: Messages.STATUS_CHECK_RATE_LIMITED }),
+    );
+    expect(mockGetActiveQuotes).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-07 — não interromper FSM em fluxo crítico
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CA-07 — fluxo crítico em andamento', () => {
+  it('em AWAITING_PRODUCT, pede para concluir antes', async () => {
+    setupProducer('AWAITING_PRODUCT', { category: 'Sementes' });
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    const sent = mockSendMessage.mock.calls[0][0].body as string;
+    expect(sent).toContain('Antes vamos terminar');
+    expect(sent).toContain('cancelar');
+    expect(mockGetActiveQuotes).not.toHaveBeenCalled();
+    expect(mockRateCheck).not.toHaveBeenCalled();
+  });
+
+  it('em AWAITING_QUANTITY, não consulta status', async () => {
+    setupProducer('AWAITING_QUANTITY', {});
+
+    await fsm.handleMessage(PRODUCER_ID, 'andamento');
+
+    expect(mockGetActiveQuotes).not.toHaveBeenCalled();
+  });
+
+  it('em IDLE, consulta status normalmente', async () => {
+    setupProducer('IDLE');
+    mockGetActiveQuotes.mockResolvedValue([]);
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    expect(mockGetActiveQuotes).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-08 — isolamento multi-tenant
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CA-08 — isolamento multi-tenant', () => {
+  it('passa tenantId do produtor para QuoteStatusService', async () => {
+    setupProducer('IDLE');
+    mockGetActiveQuotes.mockResolvedValue([]);
+
+    await fsm.handleMessage(PRODUCER_ID, 'status');
+
+    expect(mockGetActiveQuotes).toHaveBeenCalledWith(PRODUCER_ID, TENANT_ID);
+  });
+});
