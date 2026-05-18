@@ -45,8 +45,8 @@ export class ProducerService {
           subscription: true,
           _count: {
             select: {
+              // CO-0-05: campo `suppliers` removido do Producer; suppliers são por tenant.
               quotes: true,
-              suppliers: true,
             },
           },
         },
@@ -87,15 +87,12 @@ export class ProducerService {
       where.tenantId = ctx.tenantId;
     }
 
+    // CO-0-05: relação `suppliers` (ProducerSupplier[]) removida.
+    // Os fornecedores do produtor agora são todos os do mesmo tenant.
     const producer = await prisma.producer.findFirst({
       where,
       include: {
         subscription: true,
-        suppliers: {
-          include: {
-            supplier: true,
-          },
-        },
         quotes: {
           take: 10,
           orderBy: { createdAt: 'desc' },

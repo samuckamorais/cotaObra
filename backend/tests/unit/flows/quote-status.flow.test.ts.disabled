@@ -1,4 +1,4 @@
-import { ProducerFSM, isStatusCheckIntent } from '../../../src/flows/requester.flow';
+import { RequesterFSM, isStatusCheckIntent } from '../../../src/flows/requester.flow';
 import { whatsappService } from '../../../src/modules/whatsapp/whatsapp.service';
 import { prisma } from '../../../src/config/database';
 import { Messages } from '../../../src/flows/messages';
@@ -110,14 +110,14 @@ function setupProducer(step: string, context: Record<string, unknown> = {}) {
   });
 }
 
-let fsm: ProducerFSM;
+let fsm: RequesterFSM;
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockUpsertState.mockResolvedValue({});
   (prisma.conversationState.update as jest.Mock).mockResolvedValue({});
   mockRateCheck.mockResolvedValue({ allowed: true, count: 1 });
-  fsm = new ProducerFSM();
+  fsm = new RequesterFSM();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,10 @@
 /**
- * FF-BE-024 — resolveCategoryValue: normalização de input do produtor
- * em VALUE canônico da SUPPLIER_CATEGORIES.
+ * CO-0-07 — resolveCategoryValue agora normaliza para categorias de
+ * MATERIAIS DE CONSTRUÇÃO (cimento, agregados, aço, blocos, ...).
+ *
+ * O arquivo `supplier-categories.ts` virou um shim de retrocompat que
+ * re-exporta de `material-categories.ts`. Os testes legados (sementes,
+ * fertilizantes, defensivos) foram reescritos para o novo domínio.
  */
 import {
   resolveCategoryValue,
@@ -9,35 +13,42 @@ import {
   findCanonicalCategoryLabel,
 } from '../../../src/constants/supplier-categories';
 
-describe('resolveCategoryValue', () => {
+describe('resolveCategoryValue (construção)', () => {
   it('value canônico passa direto', () => {
-    expect(resolveCategoryValue('defensivo')).toBe('defensivo');
-    expect(resolveCategoryValue('calcario')).toBe('calcario');
-    expect(resolveCategoryValue('insumos_geral')).toBe('insumos_geral');
+    expect(resolveCategoryValue('cimento')).toBe('cimento');
+    expect(resolveCategoryValue('agregados')).toBe('agregados');
+    expect(resolveCategoryValue('aco')).toBe('aco');
+    expect(resolveCategoryValue('hidraulica')).toBe('hidraulica');
   });
 
-  it('label Title Case → value', () => {
-    expect(resolveCategoryValue('Defensivo')).toBe('defensivo');
-    expect(resolveCategoryValue('Calcário')).toBe('calcario');
-    expect(resolveCategoryValue('Insumos em Geral')).toBe('insumos_geral');
+  it('label Title Case / com acento → value canônico', () => {
+    expect(resolveCategoryValue('Cimento e cal')).toBe('cimento');
+    expect(resolveCategoryValue('Hidráulica (tubos, conexões, registros)')).toBe(
+      'hidraulica',
+    );
+    expect(resolveCategoryValue('Aço e ferragens')).toBe('aco');
   });
 
-  it('Cenário 5: plural simples → singular canônico', () => {
-    expect(resolveCategoryValue('Defensivos')).toBe('defensivo');
-    expect(resolveCategoryValue('Sementes')).toBe('semente');
-    expect(resolveCategoryValue('fertilizantes')).toBe('fertilizante');
+  it('sem acento → value normalizado', () => {
+    expect(resolveCategoryValue('hidraulica')).toBe('hidraulica');
+    expect(resolveCategoryValue('Aco')).toBe('aco');
+    expect(resolveCategoryValue('impermeabilizacao')).toBe('impermeabilizacao');
   });
 
-  it('Cenário 6: sem acento → value com diacrítico canonizado', () => {
-    expect(resolveCategoryValue('calcario')).toBe('calcario');
-    expect(resolveCategoryValue('Calcario')).toBe('calcario');
-    expect(resolveCategoryValue('combustivel')).toBe('combustivel');
-    expect(resolveCategoryValue('Combustível')).toBe('combustivel');
+  it('sinônimos comuns mapeiam para categoria certa', () => {
+    expect(resolveCategoryValue('areia')).toBe('agregados');
+    expect(resolveCategoryValue('brita')).toBe('agregados');
+    expect(resolveCategoryValue('vergalhao')).toBe('aco');
+    expect(resolveCategoryValue('tijolo')).toBe('blocos');
+    expect(resolveCategoryValue('porcelanato')).toBe('revestimento');
+    expect(resolveCategoryValue('telha')).toBe('cobertura');
+    expect(resolveCategoryValue('tinta')).toBe('pintura');
+    expect(resolveCategoryValue('drywall')).toBe('gesso');
   });
 
   it('case e espaço — trim + lowercase', () => {
-    expect(resolveCategoryValue('  Defensivo  ')).toBe('defensivo');
-    expect(resolveCategoryValue('DEFENSIVO')).toBe('defensivo');
+    expect(resolveCategoryValue('  Cimento  ')).toBe('cimento');
+    expect(resolveCategoryValue('CIMENTO')).toBe('cimento');
   });
 
   it('input inválido → undefined', () => {
@@ -48,32 +59,29 @@ describe('resolveCategoryValue', () => {
     expect(resolveCategoryValue(undefined)).toBeUndefined();
     expect(resolveCategoryValue('   ')).toBeUndefined();
   });
+});
 
-  it('não confunde labels parecidos (insumos vs insumos_geral)', () => {
-    // "insumos" sozinho não casa com label "Insumos em Geral"
-    expect(resolveCategoryValue('insumos')).toBeUndefined();
-    // mas o nome completo casa
-    expect(resolveCategoryValue('Insumos em Geral')).toBe('insumos_geral');
+describe('SUPPLIER_CATEGORIES (= MATERIAL_CATEGORIES)', () => {
+  it('tem 17 categorias canônicas de construção', () => {
+    expect(SUPPLIER_CATEGORIES.length).toBe(17);
+    expect(SUPPLIER_CATEGORY_LABELS.length).toBe(17);
+  });
+
+  it('primeira categoria é cimento', () => {
+    expect(SUPPLIER_CATEGORIES[0].value).toBe('cimento');
+    expect(SUPPLIER_CATEGORIES[1].value).toBe('agregados');
+    expect(SUPPLIER_CATEGORIES[2].value).toBe('aco');
+  });
+
+  it('contém "outros" para casos não-categorizáveis', () => {
+    const values = SUPPLIER_CATEGORIES.map((c) => c.value);
+    expect(values).toContain('outros');
   });
 });
 
-describe('SUPPLIER_CATEGORY_LABELS — invariantes', () => {
-  it('tem exatamente 10 categorias canônicas', () => {
-    expect(SUPPLIER_CATEGORIES.length).toBe(10);
-    expect(SUPPLIER_CATEGORY_LABELS.length).toBe(10);
-  });
-
-  it('ordem dos labels segue ordem dos values (cenário 2: "1" → "semente")', () => {
-    expect(SUPPLIER_CATEGORIES[0].value).toBe('semente');
-    expect(SUPPLIER_CATEGORIES[1].value).toBe('fertilizante');
-    expect(SUPPLIER_CATEGORIES[2].value).toBe('foliar');
-    expect(SUPPLIER_CATEGORIES[3].value).toBe('defensivo');
-  });
-});
-
-describe('findCanonicalCategoryLabel (não regredido)', () => {
-  it('continua resolvendo label exato', () => {
-    expect(findCanonicalCategoryLabel('defensivo')).toBe('Defensivo');
-    expect(findCanonicalCategoryLabel('CALCÁRIO')).toBe('Calcário');
+describe('findCanonicalCategoryLabel', () => {
+  it('resolve label exato (case-insensitive)', () => {
+    expect(findCanonicalCategoryLabel('cimento e cal')).toBe('Cimento e cal');
+    expect(findCanonicalCategoryLabel('AÇO E FERRAGENS')).toBe('Aço e ferragens');
   });
 });

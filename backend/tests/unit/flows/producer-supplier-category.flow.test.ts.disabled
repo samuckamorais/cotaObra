@@ -8,7 +8,7 @@
  *   - input inválido remostra a lista e mantém o estado
  *   - cadastro inline (vindo da cotação) normaliza a categoria do contexto
  */
-import { ProducerFSM } from '../../../src/flows/requester.flow';
+import { RequesterFSM } from '../../../src/flows/requester.flow';
 import { whatsappService } from '../../../src/modules/whatsapp/whatsapp.service';
 import { prisma } from '../../../src/config/database';
 import { SUPPLIER_CATEGORY_LABELS } from '../../../src/constants/supplier-categories';
@@ -129,7 +129,7 @@ function setupCategoryState(
   });
 }
 
-let fsm: ProducerFSM;
+let fsm: RequesterFSM;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -142,7 +142,7 @@ beforeEach(() => {
   (prisma.supplier.create as jest.Mock).mockResolvedValue({ id: SUPPLIER_ID, name: SUPPLIER_NAME });
   mockUpdateSupplier.mockResolvedValue({});
   (prisma as any).$transaction = jest.fn(async (fn: any) => fn(prisma));
-  fsm = new ProducerFSM();
+  fsm = new RequesterFSM();
 });
 
 // ── Cenários ──────────────────────────────────────────────────────────────────

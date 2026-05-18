@@ -8,9 +8,9 @@ import {
 import { logger } from '../../utils/logger';
 import { openaiService } from '../../services/openai.service';
 import { prisma } from '../../config/database';
-// CO-0-06: arquivo renomeado para requester.flow.ts. Nome da classe `ProducerFSM`
-// preservado no Sprint 0; rename do símbolo vem na Sprint 2 (adaptação real da FSM).
-import { ProducerFSM } from '../../flows/requester.flow';
+// CO-0-06: arquivo renomeado para requester.flow.ts e classe renomeada para RequesterFSM.
+// Adaptação semântica do fluxo (perguntas de obra/material em vez de cultura) entra na Sprint 2.
+import { RequesterFSM } from '../../flows/requester.flow';
 import { SupplierFSM } from '../../flows/supplier.flow';
 import { tryNormalizePhoneBR } from '../../utils/phone';
 import { transcribeAudio } from '../../services/audio-transcription.service';
@@ -21,12 +21,12 @@ import { transcribeAudio } from '../../services/audio-transcription.service';
  */
 export class WhatsAppService {
   private provider: IWhatsAppProvider;
-  private producerFSM: ProducerFSM;
+  private requesterFSM: RequesterFSM;
   private supplierFSM: SupplierFSM;
 
   constructor() {
     this.provider = WhatsAppFactory.create();
-    this.producerFSM = new ProducerFSM();
+    this.requesterFSM = new RequesterFSM();
     this.supplierFSM = new SupplierFSM();
   }
 
@@ -290,13 +290,13 @@ export class WhatsAppService {
 
       // Se detectar intenção de nova cotação, iniciar fluxo
       if (nluResult.intent === 'nova_cotacao') {
-        await this.producerFSM.handleMessage(producerId, message, nluResult);
+        await this.requesterFSM.handleMessage(producerId, message, nluResult);
         return;
       }
     }
 
     // Rotear para handler do estado atual
-    await this.producerFSM.handleMessage(producerId, message);
+    await this.requesterFSM.handleMessage(producerId, message);
   }
 
   /**

@@ -123,7 +123,7 @@ const STATUS_CHECK_ALLOWED_STATES = new Set<ProducerState>([
  * FSM do Produtor - Gerencia fluxo de criação de cotações
  * Estados: IDLE → AWAITING_PRODUCT → ... → QUOTE_ACTIVE → CLOSED
  */
-export class ProducerFSM extends FSMEngine<ProducerState> {
+export class RequesterFSM extends FSMEngine<ProducerState> {
   /**
    * Handler principal que roteia mensagem para o handler do estado atual
    */
@@ -341,7 +341,7 @@ export class ProducerFSM extends FSMEngine<ProducerState> {
           });
       }
     } catch (error) {
-      logger.error('Error in ProducerFSM', { error, producerId, currentState });
+      logger.error('Error in RequesterFSM', { error, producerId, currentState });
       await whatsappService.sendMessage({
         to: producer.phone,
         body: Messages.ERROR,

@@ -16,9 +16,16 @@ declare global {
         id: string;
         email: string;
         // FEAT-008 (FF-BE-027): SUPER_ADMIN é cross-tenant. ADMIN/USER são
-        // por-tenant. O middleware requireSuperAdmin (próximo checkpoint)
-        // valida o role explicitamente; aqui só ampliamos o tipo.
-        role: 'SUPER_ADMIN' | 'ADMIN' | 'USER';
+        // por-tenant. CO-0-04 adicionou BUYER/REQUESTER/APPROVER (CotaObra).
+        // O middleware requireSuperAdmin valida o role explicitamente;
+        // aqui só ampliamos o tipo para casar com o enum UserRole do Prisma.
+        role:
+          | 'SUPER_ADMIN'
+          | 'ADMIN'
+          | 'BUYER'
+          | 'REQUESTER'
+          | 'APPROVER'
+          | 'USER';
         tenantId?: string;
         // FF-BE-023: producerId define se o user é um produtor (vínculo 1:1)
         // ou um operador/admin (null). CO-0-05: supplier listing não filtra

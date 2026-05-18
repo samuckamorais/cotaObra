@@ -1,4 +1,4 @@
-import { ProducerFSM } from '../../../src/flows/requester.flow';
+import { RequesterFSM } from '../../../src/flows/requester.flow';
 import { whatsappService } from '../../../src/modules/whatsapp/whatsapp.service';
 import { prisma } from '../../../src/config/database';
 import { Messages } from '../../../src/flows/messages';
@@ -103,7 +103,7 @@ function makeProducer(step: string, context: Record<string, unknown> = {}) {
   };
 }
 
-let fsm: ProducerFSM;
+let fsm: RequesterFSM;
 
 function setupProducer(step: string, context: Record<string, unknown> = {}) {
   const producer = makeProducer(step, context);
@@ -135,12 +135,12 @@ beforeEach(() => {
   (prisma.supplier.update as jest.Mock).mockResolvedValue({});
   // $transaction: por padrão executa o callback recebido com prisma como tx
   (prisma as any).$transaction = jest.fn(async (fn: any) => fn(prisma));
-  fsm = new ProducerFSM();
+  fsm = new RequesterFSM();
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('ProducerFSM', () => {
+describe('RequesterFSM', () => {
   describe('IDLE', () => {
     it('envia mensagem de boas-vindas ao receber mensagem em IDLE', async () => {
       setupProducer('IDLE');

@@ -296,15 +296,11 @@ export class ReportService {
   // ─────────────────────────────────────────────────────────────────
   // 4. PERFORMANCE DE FORNECEDORES
   // ─────────────────────────────────────────────────────────────────
-  static async getSupplierPerformance(tenantId: string, userId: string, params: DateRangeParams) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true, producerId: true },
-    });
-
+  static async getSupplierPerformance(tenantId: string, _userId: string, params: DateRangeParams) {
+    // CO-0-05: visibilidade é por tenant — não precisamos mais consultar o User
+    // pra decidir se filtra por ProducerSupplier (removido).
     const createdAt = this.defaultDateRange(params.from, params.to);
 
-    // CO-0-05: fornecedores agora são por tenant. USER vê os mesmos da construtora.
     let supplierWhere: any = { OR: [{ tenantId }, { tenantId: null }] };
 
     const suppliers = await prisma.supplier.findMany({

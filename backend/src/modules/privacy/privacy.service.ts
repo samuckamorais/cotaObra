@@ -12,6 +12,8 @@ export class PrivacyService {
    */
   static async exportData(entityId: string, entityType: EntityType) {
     if (entityType === 'producer') {
+      // CO-0-04/05: settings agora vivem em TenantSettings; ProducerSupplier removido.
+      // Carregamos as suppliers do mesmo tenant + settings do tenant via consultas extras.
       const producer = await prisma.producer.findUnique({
         where: { id: entityId },
         include: {
@@ -23,15 +25,7 @@ export class PrivacyService {
               },
             },
           },
-          suppliers: {
-            include: {
-              supplier: {
-                select: { id: true, name: true, phone: true },
-              },
-            },
-          },
           subscription: true,
-          settings: true,
         },
       });
 

@@ -14,16 +14,10 @@ export async function dispatchQuoteJob(quoteId: string, selectedSupplierIds?: st
 
   logger.info('Quote dispatch job added to queue', { quoteId, selectedSupplierIds });
 
-  // Retorna número estimado de fornecedores (cálculo rápido)
+  // CO-0-05: contagem de fornecedores agora é por tenant (não mais via ProducerSupplier).
   const quote = await prisma.quote.findUniqueOrThrow({
     where: { id: quoteId },
-    include: {
-      producer: {
-        include: {
-          suppliers: true,
-        },
-      },
-    },
+    select: { tenantId: true, region: true, supplierScope: true },
   });
 
   let suppliersCount = 0;
@@ -33,7 +27,9 @@ export async function dispatchQuoteJob(quoteId: string, selectedSupplierIds?: st
     if (selectedSupplierIds && selectedSupplierIds.length > 0) {
       suppliersCount += selectedSupplierIds.length;
     } else {
-      suppliersCount += quote.producer.suppliers.length;
+      suppliersCount += await prisma.supplier.count({
+        where: { tenantId: quote.tenantId, isNetworkSupplier: false },
+      });
     }
   }
 
@@ -61,17 +57,7 @@ quoteDispatchQueue.process(async (job) => {
   try {
     const quote = await prisma.quote.findUniqueOrThrow({
       where: { id: quoteId },
-      include: {
-        producer: {
-          include: {
-            suppliers: {
-              include: {
-                supplier: true,
-              },
-            },
-          },
-        },
-      },
+      include: { producer: true },
     });
 
     const supplierFSM = new SupplierFSM();
@@ -80,7 +66,8 @@ quoteDispatchQueue.process(async (job) => {
     // Coletar todos os fornecedores elegíveis antes de notificar
     const eligibleSuppliers: Array<{ id: string; isOwn: boolean; supplier: any }> = [];
 
-    // 1. Fornecedores próprios do produtor
+    // 1. Fornecedores próprios da construtora (tenant)
+    // CO-0-05: sem mais ProducerSupplier; buscamos via Supplier.tenantId direto.
     if (quote.supplierScope === 'MINE' || quote.supplierScope === 'ALL') {
       if (selectedSupplierIds && selectedSupplierIds.length > 0) {
         // Buscar dados completos dos fornecedores selecionados
@@ -91,8 +78,11 @@ quoteDispatchQueue.process(async (job) => {
           eligibleSuppliers.push({ id: supplier.id, isOwn: true, supplier });
         }
       } else {
-        for (const ps of quote.producer.suppliers) {
-          eligibleSuppliers.push({ id: ps.supplier.id, isOwn: true, supplier: ps.supplier });
+        const tenantSuppliers = await prisma.supplier.findMany({
+          where: { tenantId: quote.tenantId, isNetworkSupplier: false },
+        });
+        for (const supplier of tenantSuppliers) {
+          eligibleSuppliers.push({ id: supplier.id, isOwn: true, supplier });
         }
       }
     }

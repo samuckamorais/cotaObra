@@ -13,11 +13,20 @@ import { createError } from './error-handler';
  * exista — admin sempre vê tudo do tenant. Isso protege o caso edge em que
  * um admin tem producerId definido por algum motivo histórico/operacional.
  */
+// CO-0-04: roles ampliados para incluir BUYER/REQUESTER/APPROVER (CotaObra).
+export type Role =
+  | 'SUPER_ADMIN'
+  | 'ADMIN'
+  | 'BUYER'
+  | 'REQUESTER'
+  | 'APPROVER'
+  | 'USER';
+
 export type AuthContext = {
   userId: string;
   tenantId: string;
   producerId: string | null;
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'USER';
+  role: Role;
 };
 
 export function getAuthContext(req: Request): AuthContext {

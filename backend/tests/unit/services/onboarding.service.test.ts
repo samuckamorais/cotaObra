@@ -1,7 +1,14 @@
+/**
+ * CO-0-05: OnboardingService.getProgress agora resolve fornecedores via
+ * `supplier.count({ where: { tenantId } })` em vez de `producerSupplier.count`.
+ * O mock precisa de `producer.findUnique` para retornar o tenantId e
+ * `supplier.count` (em vez do antigo `producerSupplier.count`).
+ */
 jest.mock('../../../src/config/database', () => ({
   prisma: {
+    producer: { findUnique: jest.fn() },
     quote: { count: jest.fn() },
-    producerSupplier: { count: jest.fn() },
+    supplier: { count: jest.fn() },
     proposal: { count: jest.fn() },
   },
 }));
@@ -9,11 +16,16 @@ jest.mock('../../../src/config/database', () => ({
 import { OnboardingService } from '../../../src/services/onboarding.service';
 import { prisma } from '../../../src/config/database';
 
+const mockProducerFindUnique = prisma.producer.findUnique as jest.Mock;
 const mockQuoteCount = prisma.quote.count as jest.Mock;
-const mockSupplierCount = (prisma as any).producerSupplier.count as jest.Mock;
-const mockProposalCount = (prisma as any).proposal.count as jest.Mock;
+const mockSupplierCount = prisma.supplier.count as jest.Mock;
+const mockProposalCount = prisma.proposal.count as jest.Mock;
 
-beforeEach(() => jest.resetAllMocks());
+beforeEach(() => {
+  jest.resetAllMocks();
+  // Produtor padrão (com tenant) para todos os testes.
+  mockProducerFindUnique.mockResolvedValue({ tenantId: 'tenant-1' });
+});
 
 describe('OnboardingService', () => {
   describe('getProgress', () => {
@@ -50,10 +62,21 @@ describe('OnboardingService', () => {
 
       const result = await OnboardingService.getProgress('prod-1');
 
+      expect(result.signup).toBe(true);
       expect(result.firstQuote).toBe(true);
       expect(result.firstSupplier).toBe(true);
       expect(result.firstProposal).toBe(true);
       expect(result.completedAt).toBeDefined();
+    });
+
+    it('retorna 0 suppliers se producer não tem tenant', async () => {
+      mockProducerFindUnique.mockResolvedValue(null);
+      mockQuoteCount.mockResolvedValue(0);
+      mockProposalCount.mockResolvedValue(0);
+
+      const result = await OnboardingService.getProgress('prod-orphan');
+
+      expect(result.firstSupplier).toBe(false);
     });
   });
 });

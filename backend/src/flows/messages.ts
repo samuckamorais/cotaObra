@@ -92,7 +92,7 @@ function quantityExampleFor(category?: string): string {
 
 export const Messages = {
   // ===================================
-  // MENSAGENS DO PRODUTOR
+  // MENSAGENS DO SOLICITANTE (engenheiro/comprador da construtora)
   // ===================================
 
   WELCOME: (producerName?: string, isReturning = false) => {
@@ -128,10 +128,10 @@ _ajuda_ — Ver como funciona`;
 
   ASK_CATEGORY: (categories: string[]) => {
     if (categories.length === 0) {
-      return `Qual a *categoria* do produto?\n\nEx: sementes, fertilizantes, defensivos, rações`;
+      return `Qual a *categoria* do material?\n\nEx: cimento, agregados, aço, hidráulica, elétrica`;
     }
 
-    let message = `Qual a categoria do produto?\n\n`;
+    let message = `Qual a categoria do material?\n\n`;
     categories.forEach((cat, i) => {
       message += `${i + 1} — ${cat}\n`;
     });
@@ -140,16 +140,17 @@ _ajuda_ — Ver como funciona`;
   },
 
   ASK_PRODUCT: (category: string) => {
-    const isSemente = ['sementes', 'semente'].includes(category.toLowerCase().trim());
-    const label = isSemente ? 'cultivar' : 'produto';
-    return `Categoria: *${category}*\n\nQual ${label} você quer cotar?`;
+    // CO-0-09: contexto construção — pedimos o "material" (item específico).
+    return `Categoria: *${category}*\n\nQual material você quer cotar?`;
   },
 
   ASK_PRODUCT_DEFENSIVO: (category: string) =>
-    `Categoria: *${category}*\n\nPrimeiro, informe o *nome do produto*. Em seguida, solicitarei o *Princípio Ativo*.\n\nQual o nome do produto?\n\nEx: Roundup, Score, Karate Zeon, Engeo Pleno`,
+    // CO-0-09: na construção, perguntamos a *especificação técnica* (norma, marca, espessura).
+    `Categoria: *${category}*\n\nQual o *nome do material*?\n\nEx: Cimento CP-II-Z 32, Brita 1, Vergalhão CA-50 12,5mm, Tijolo cerâmico 9x19x19cm`,
 
   ASK_ACTIVE_PRINCIPLE: (product: string) =>
-    `Produto: *${product}*\n\nAgora informe o *Princípio Ativo*:\n\nEx: Glifosato, Imidacloprido, Azoxistrobina, Lambda-cialotrina`,
+    // CO-0-09: equivalente construção é a *especificação técnica* (norma NBR, marca).
+    `Material: *${product}*\n\nTem alguma *especificação técnica* obrigatória (norma NBR, marca aprovada pelo arquiteto)?\n\nEx: NBR 7480, marca Votorantim, cor branca\n\nSe não tiver, responda *não*.`,
 
   ASK_MORE_ITEMS: (items: Array<{ product: string; quantity: number; unit: string; activeIngredient?: string }>) => {
     const list = items.map((it, i) => {
@@ -167,21 +168,22 @@ _ajuda_ — Ver como funciona`;
   },
 
   ASK_REGION: () =>
-    `Qual a cidade ou região de entrega?\n\nEx: Goiânia, Rio Verde, Jataí`,
+    `Qual a cidade ou região de entrega?\n\nEx: São Paulo (capital), Campinas, ABC paulista`,
 
   ASK_DEADLINE: () =>
-    `Qual o prazo máximo para entrega?\n\nEx: amanhã, em 5 dias, 30/06`,
+    `Qual o prazo máximo para entrega na obra?\n\nEx: amanhã, em 5 dias, 30/06`,
 
   ASK_OBSERVATIONS_OPTIONAL: () =>
-    `Tem alguma observação para os fornecedores?\n\nSe não tiver, responda *não*.`,
+    `Tem alguma observação para os fornecedores? (acesso, horário, descarga)\n\nSe não tiver, responda *não*.`,
 
   ASK_FREIGHT: `O frete é CIF ou FOB?
 
-1 — *CIF* — fornecedor entrega na propriedade
+1 — *CIF* — fornecedor entrega na obra
 2 — *FOB* — você retira no fornecedor`,
 
   ASK_PAYMENT_TERMS: (freight: string) =>
-    `Frete: *${freight === 'CIF' ? 'CIF (entrega inclusa)' : 'FOB (retira no fornecedor)'}*\n\nQual a condição de pagamento?\n\nEx: à vista, 30/60, safra, safrinha`,
+    // CO-0-09: condições típicas de construção: à vista (~5% desc), 28dd, 28/56dd, 30/60/90dd.
+    `Frete: *${freight === 'CIF' ? 'CIF (entrega na obra)' : 'FOB (retira no fornecedor)'}*\n\nQual a condição de pagamento?\n\nEx: à vista, 28dd, 28/56dd, 30/60/90dd`,
 
   ASK_SUPPLIER_SCOPE: `*Para quais fornecedores enviar?*
 
@@ -295,7 +297,7 @@ Ou, se preferir, digita assim:
       });
       message += `\nResponda com o(s) número(s) ou escreva a categoria.\nEx: *1* ou *1,3*`;
     } else {
-      message += `Ex: sementes, fertilizantes, defensivos, rações`;
+      message += `Ex: cimento, agregados, aço, hidráulica, elétrica`;
     }
 
     return message;
@@ -380,10 +382,10 @@ _cancelar_ — voltar ao menu`,
         ? [{ product: quote.product, quantity: quote.quantity || '', unit: quote.unit || '' }]
         : [];
 
-    let message = `Olá! 👋 Sou assistente de cotação do produtor *${quote.producerName}* (${quote.producerCity}).\n\nEstou iniciando a cotação abaixo:\n\n`;
+    let message = `Olá! 👋 Sou assistente de cotação da construtora *${quote.producerName}* (${quote.producerCity}).\n\nEstou iniciando a cotação abaixo:\n\n`;
 
     if (quote.category) message += `Categoria: *${quote.category.charAt(0).toUpperCase() + quote.category.slice(1)}*\n`;
-    message += `Produtos:\n`;
+    message += `Materiais:\n`;
     items.forEach((it) => {
       let line = `  • ${it.product}`;
       if (it.activeIngredient) line += ` (PA: ${it.activeIngredient})`;
@@ -392,7 +394,7 @@ _cancelar_ — voltar ao menu`,
     });
     message += `\nDt. de Entrega: ${quote.deadline}\n`;
     message += `Local: ${quote.region.charAt(0).toUpperCase() + quote.region.slice(1)}\n`;
-    message += `Frete: ${quote.freight === 'CIF' ? 'CIF (entrega inclusa)' : quote.freight === 'FOB' ? 'FOB (retira no fornecedor)' : 'A definir'}\n`;
+    message += `Frete: ${quote.freight === 'CIF' ? 'CIF (entrega na obra)' : quote.freight === 'FOB' ? 'FOB (retira no fornecedor)' : 'A definir'}\n`;
     if (quote.paymentTerms) message += `Pagamento: ${quote.paymentTerms}\n`;
     if (quote.observations) message += `Obs: ${quote.observations}\n`;
 
@@ -418,14 +420,14 @@ _cancelar_ — voltar ao menu`,
 
   ASK_SUPPLIER_OBS: `Alguma observação sobre sua proposta?\n\nSe não tiver, responda *não*.`,
 
-  PROPOSAL_SENT: `Proposta registrada! ✅\n\nO produtor vai receber junto com as demais. Você será avisado se for selecionado.`,
+  PROPOSAL_SENT: `Proposta registrada! ✅\n\nA construtora vai receber junto com as demais. Você será avisado se for selecionado.`,
 
   PROPOSAL_SENT_WITH_RANKING: (data: {
     totalProposals: number;
     yourPrice: number;
     expiresIn: string;
   }) =>
-    `Proposta enviada! ✅\n\nSua proposta: *R$ ${data.yourPrice.toFixed(2)}*\nTotal recebidas: ${data.totalProposals}\nCotação encerra em: ${data.expiresIn}\n\nVocê será avisado quando o produtor decidir.`,
+    `Proposta enviada! ✅\n\nSua proposta: *R$ ${data.yourPrice.toFixed(2)}*\nTotal recebidas: ${data.totalProposals}\nCotação encerra em: ${data.expiresIn}\n\nVocê será avisado quando a construtora decidir.`,
 
   PROPOSAL_NOT_SELECTED: (data: {
     winningPrice: number;
@@ -435,7 +437,7 @@ _cancelar_ — voltar ao menu`,
     const diff = data.yourPrice - data.winningPrice;
     const diffPercent = ((diff / data.winningPrice) * 100).toFixed(1);
 
-    let message = `A cotação de *${data.producerName}* foi encerrada.\n\n`;
+    let message = `A cotação da construtora *${data.producerName}* foi encerrada.\n\n`;
     message += `Desta vez outro fornecedor foi escolhido.\n\n`;
     message += `Vencedor: R$ ${data.winningPrice.toFixed(2)}\n`;
     message += `Sua proposta: R$ ${data.yourPrice.toFixed(2)} (+${diffPercent}%)\n\n`;
@@ -450,10 +452,10 @@ _cancelar_ — voltar ao menu`,
   },
 
   PROPOSAL_SELECTED: (data: { producerName: string; producerPhone: string }) =>
-    `Parabéns! 🎉 *${data.producerName}* escolheu você.\n\nEntre em contato para fechar os detalhes:\n📞 ${data.producerPhone}\n\nBoa negociação! 🤝`,
+    `Parabéns! 🎉 A construtora *${data.producerName}* escolheu você.\n\nEntre em contato para fechar os detalhes:\n📞 ${data.producerPhone}\n\nBoa negociação! 🤝`,
 
   QUOTE_CLOSED_PRODUCER_CONTACTS: (producerName: string) =>
-    `A cotação foi encerrada. O produtor *${producerName}* entrará em contato!`,
+    `A cotação foi encerrada. A construtora *${producerName}* entrará em contato!`,
 
   QUOTE_EXPIRED_SUPPLIER: (productName: string) =>
     `Olá! A cotação de *${productName}* foi encerrada.\n\nO prazo para recebimento de propostas expirou. Até a próxima! 👋`,
@@ -462,7 +464,7 @@ _cancelar_ — voltar ao menu`,
     product: string;
     producerName: string;
   }) =>
-    `Parabéns! 🎉 Você foi selecionado para *${data.product}*. O produtor *${data.producerName}* entrará em contato.`,
+    `Parabéns! 🎉 Você foi selecionado para *${data.product}*. A construtora *${data.producerName}* entrará em contato.`,
 
   PROPOSAL_LOST_DETAILED: (data: {
     position: number;
@@ -629,7 +631,7 @@ Ou digite *1* pra eu te guiar passo a passo.`;
   HELP: `*CotaObra — Ajuda*
 
 *O que você pode fazer:*
-• *nova cotação* — Solicitar cotação de insumos
+• *nova cotação* — Solicitar cotação de materiais
 • *fornecedor* — Cadastrar um fornecedor
 • *status* — Ver andamento de cotação ativa
 • *cancelar* — Cancelar o que está fazendo

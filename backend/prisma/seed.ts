@@ -100,14 +100,35 @@ const CATALOG_MATERIALS = [
 
 async function seedMaterials() {
   log(`Materiais: criando catálogo CotaObra (${CATALOG_MATERIALS.length} itens)`);
+  // Prisma trata NULL como distinto em @@unique composta, então pra catálogo
+  // de rede (tenantId=null) usamos o índice parcial materials_global_sku_key
+  // via findFirst + create/update.
   for (const m of CATALOG_MATERIALS) {
-    await prisma.material.upsert({
-      where: { tenantId_sku: { tenantId: null as any, sku: m.sku } } as any,
-      // ⚠ Se schema.prisma definir @@unique([tenantId, sku]), a key composta acima funciona.
-      // Caso o schema use índice diferente, ajustar para `findFirst + create/update` aqui.
-      update: { name: m.name, category: m.category, defaultUnit: m.defaultUnit, spec: m.spec ?? null },
-      create: { tenantId: null, sku: m.sku, name: m.name, category: m.category, defaultUnit: m.defaultUnit, spec: m.spec ?? null },
+    const existing = await prisma.material.findFirst({
+      where: { tenantId: null, sku: m.sku },
     });
+    if (existing) {
+      await prisma.material.update({
+        where: { id: existing.id },
+        data: {
+          name: m.name,
+          category: m.category,
+          defaultUnit: m.defaultUnit,
+          spec: m.spec ?? null,
+        },
+      });
+    } else {
+      await prisma.material.create({
+        data: {
+          tenantId: null,
+          sku: m.sku,
+          name: m.name,
+          category: m.category,
+          defaultUnit: m.defaultUnit,
+          spec: m.spec ?? null,
+        },
+      });
+    }
   }
 }
 
@@ -162,43 +183,46 @@ async function seedUsers(tenantId: string) {
   log("Usuários: admin@cotaobra.dev / comprador@cotaobra.dev / engenheiro@cotaobra.dev");
   const password = await hash(DEFAULT_PASSWORD);
 
+  // User.email é globalmente unique no schema atual, então usamos email como key.
+  // Em Sprint 1 (multi-tenant onde mesmo e-mail pode aparecer em tenants diferentes),
+  // mudar para @@unique([tenantId, email]) e usar where: { tenantId_email }.
   const admin = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId, email: "admin@cotaobra.dev" } } as any,
+    where: { email: "admin@cotaobra.dev" },
     update: {},
     create: {
       tenantId,
       name: "Admin Demo",
       email: "admin@cotaobra.dev",
       phone: "+5511900000001",
-      role: "ADMIN" as any,
+      role: "ADMIN",
       password,
       active: true,
     },
   });
 
   const buyer = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId, email: "comprador@cotaobra.dev" } } as any,
+    where: { email: "comprador@cotaobra.dev" },
     update: {},
     create: {
       tenantId,
       name: "Samuel Albuquerque (Comprador)",
       email: "comprador@cotaobra.dev",
       phone: "+5511900000002",
-      role: "BUYER" as any,
+      role: "BUYER",
       password,
       active: true,
     },
   });
 
   const requester = await prisma.user.upsert({
-    where: { tenantId_email: { tenantId, email: "engenheiro@cotaobra.dev" } } as any,
+    where: { email: "engenheiro@cotaobra.dev" },
     update: {},
     create: {
       tenantId,
       name: "Carlos Ramos (Eng. de Obra)",
       email: "engenheiro@cotaobra.dev",
       phone: "+5511987654321",
-      role: "REQUESTER" as any,
+      role: "REQUESTER",
       password,
       active: true,
     },
@@ -312,8 +336,11 @@ const SUPPLIERS = [
 async function seedSuppliers(tenantId: string) {
   log(`Fornecedores: ${SUPPLIERS.length} cadastrados`);
   for (const s of SUPPLIERS) {
+    // Supplier não tem campo `cnpj` plain — está em cpfCnpjEncrypted/Hash.
+    // No seed dev pulamos a criptografia para manter código simples; o CNPJ
+    // do dado de demo (`s.cnpj`) fica apenas no log.
     await prisma.supplier.upsert({
-      where: { tenantId_phone: { tenantId, phone: s.phone } } as any,
+      where: { tenantId_phone: { tenantId, phone: s.phone } },
       update: {},
       create: {
         tenantId,
@@ -321,7 +348,6 @@ async function seedSuppliers(tenantId: string) {
         company: s.company,
         phone: s.phone,
         email: s.email,
-        cnpj: s.cnpj,
         regions: s.regions,
         categories: s.categories,
         isNetworkSupplier: false,

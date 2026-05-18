@@ -36,6 +36,8 @@ model Tenant {
   experimentAssignments ExperimentAssignment[]
   quoteTokens           QuoteToken[]
   settings              TenantSettings?
+  sites                 Site[]
+  materials             Material[]
 
   @@index([slug])
   @@index([active])
@@ -484,8 +486,12 @@ model User {
   active     Boolean   @default(true)
   tenant     Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   tenantId   String?
+  phone      String?   // telefone WhatsApp do usuário (engenheiro recebe cotações por aqui)
   producer   Producer? @relation(fields: [producerId], references: [id], onDelete: SetNull)
-  producerId      String?   @unique // um producer → no máximo um user
+  producerId      String?   @unique // LEGACY agro — um producer → no máximo um user
+  // CO-0-04 (extensão): obras que o usuário pode abrir cotação para.
+  // REQUESTER tipicamente tem 1-3 obras; APPROVER/ADMIN não usa (vê tudo).
+  siteIds          String[]  @default([])
   twoFactorEnabled Boolean  @default(false)
   // FEAT-008 (FF-BE-031) — secret TOTP em base32. NÃO retornar em nenhuma
   // response após o setup-confirm. Validate via otplib.authenticator.verify
@@ -706,8 +712,11 @@ enum PlanType {
 
 enum UserRole {
   SUPER_ADMIN // FEAT-008 — operador da plataforma (cross-tenant). tenantId pode ser null.
-  ADMIN       // acesso total dentro do tenant
-  USER        // acesso baseado em permissões
+  ADMIN       // acesso total dentro do tenant (gerência da construtora)
+  BUYER       // comprador (fecha cotações, vê comparativo de fornecedores)
+  REQUESTER   // engenheiro de obra (abre solicitações pelo WhatsApp)
+  APPROVER    // diretor (aprova compras acima do teto definido em TenantSettings)
+  USER        // legacy — acesso genérico por permissão (RBAC granular)
 }
 
 enum Resource {
@@ -715,8 +724,77 @@ enum Resource {
   QUOTES
   SUPPLIERS
   PRODUCERS
+  SITES
+  MATERIALS
+  APPROVALS
+  PURCHASE_ORDERS
   SUBSCRIPTIONS
   USERS
   WHATSAPP_CONFIG
   REPORTS
 }
+
+enum SiteStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+// =================================================================
+// CO-1 antecipado no Sprint 0 — Site e Material
+// Adicionados aqui para destravar o seed.ts do dev-bootstrap.
+// Lógica de CRUD/endpoints será implementada na Sprint 1.
+// =================================================================
+
+/// Obra/canteiro. Toda Quote no CotaObra é vinculada a uma Site.
+/// CNO (Cadastro Nacional de Obra) é o identificador oficial da receita.
+model Site {
+  id           String     @id @default(uuid())
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId     String
+  name         String     // "Residencial Aurora — Torre A"
+  cno          String?    // Cadastro Nacional de Obra
+  address      String?
+  city         String
+  state        String     // UF (SP, MG, …)
+  zip          String?
+  region       String     // ex: "SP-Capital-Sul" — usado para sugerir fornecedores
+  manager      String?    // nome do engenheiro responsável
+  managerPhone String?    // WhatsApp do engenheiro
+  budget       Decimal?   @db.Decimal(14, 2)
+  status       SiteStatus @default(ACTIVE)
+  startAt      DateTime?
+  endAt        DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([city, state])
+  @@map("sites")
+}
+
+/// Catálogo de materiais. Pode ser:
+///   - Compartilhado pela rede CotaObra (tenantId = null) → catálogo base SINAPI-ish.
+///   - Customizado por tenant (tenantId = X) → SKU específico daquela construtora.
+/// Unique composta (tenantId, sku) permite o seed.ts fazer upsert correto.
+model Material {
+  id          String   @id @default(uuid())
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String?  // null = catálogo da rede (compartilhado entre tenants)
+  sku         String   // "CIM-CPII-Z32-50"
+  name        String   // "Cimento Portland CP-II-Z 32 (saco 50kg)"
+  category    String   // referencia material-categories.ts (cimento, agregados, aco, ...)
+  defaultUnit String   // referencia unit-normalizer.ts (saca, m3, peca, ...)
+  spec        String?  // notas técnicas, NBR aplicável
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+  @@index([category])
+  @@map("materials")
+}
+

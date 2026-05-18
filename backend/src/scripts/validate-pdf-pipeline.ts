@@ -147,9 +147,6 @@ async function main() {
   // -------------------------------------------------------------------
   const producer = await prisma.producer.findFirst({
     where: { cpfCnpj: cpfNorm },
-    include: {
-      suppliers: { include: { supplier: true } },
-    },
   });
 
   if (!producer) {
@@ -157,23 +154,28 @@ async function main() {
     process.exit(1);
   }
 
+  // CO-0-05: fornecedores são por tenant (não mais por producer).
+  const tenantSuppliers = await prisma.supplier.findMany({
+    where: { tenantId: producer.tenantId, isNetworkSupplier: false },
+  });
+
   console.log(`✅ Producer encontrado:`);
   console.log(`   id:      ${producer.id}`);
   console.log(`   nome:    ${producer.name}`);
   console.log(`   phone:   ${producer.phone}`);
   console.log(`   tenant:  ${producer.tenantId}`);
-  console.log(`   suppliers vinculados: ${producer.suppliers.length}`);
+  console.log(`   suppliers do tenant: ${tenantSuppliers.length}`);
   console.log('');
 
-  if (producer.suppliers.length < 2) {
+  if (tenantSuppliers.length < 2) {
     console.error(
-      `❌ Producer precisa ter pelo menos 2 suppliers vinculados (tem ${producer.suppliers.length}).`,
+      `❌ Tenant precisa ter pelo menos 2 suppliers cadastrados (tem ${tenantSuppliers.length}).`,
     );
     process.exit(1);
   }
 
   // Pega os 2 primeiros suppliers para gerar propostas distintas
-  const [supA, supB] = producer.suppliers.slice(0, 2).map((ps) => ps.supplier);
+  const [supA, supB] = tenantSuppliers.slice(0, 2);
 
   console.log(`✅ Suppliers do teste:`);
   console.log(`   A: ${supA.id}  ${supA.name}  ${supA.phone}`);
