@@ -136,7 +136,11 @@ model Producer {
   @@index([phone])
   @@index([cpfCnpj])
   @@index([cpfCnpjHash])
-  @@map("producers")
+  // CO-1-11: model DEPRECATED — preservado durante a transição completa para User+Site.
+  // Mapeamento renomeado para "_legacy_producers" para sinalizar que escritas
+  // diretas devem ser evitadas. Linter custom alerta em PRs futuros.
+  // Remoção definitiva: Sprint 3 (após FSM Sprint 2 migrar para REQUESTER + Site).
+  @@map("_legacy_producers")
 }
 
 model QuoteTemplate {
@@ -204,6 +208,11 @@ model Quote {
   tenantId         String
   producer         Producer      @relation(fields: [producerId], references: [id], onDelete: Cascade)
   producerId       String
+  // CO-1-10: Quote.siteId é OBRIGATÓRIO. Toda cotação CotaObra é vinculada a uma obra.
+  // No fork inicial o campo entra nullable e a migration força NOT NULL após backfill.
+  // Como banco vem vazio, o NOT NULL é aplicado direto (sem dados a backfillar).
+  site             Site?         @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  siteId           String?
   category         String? // categoria do produto (ex: sementes, fertilizantes)
   product          String? // deprecated — mantido para compatibilidade com cotações antigas
   quantity         String? // deprecated — mantido para compatibilidade com cotações antigas
@@ -231,6 +240,7 @@ model Quote {
   @@index([status])
   @@index([producerId])
   @@index([producerId, createdAt])
+  @@index([siteId])
   @@index([createdAt])
   @@index([expiresAt])
   @@map("quotes")
@@ -768,6 +778,8 @@ model Site {
   endAt        DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  quotes       Quote[]
 
   @@index([tenantId])
   @@index([tenantId, status])

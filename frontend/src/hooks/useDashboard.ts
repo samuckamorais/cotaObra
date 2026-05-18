@@ -86,3 +86,26 @@ export function useDashboard() {
     },
   });
 }
+
+/**
+ * CO-1-12 — KPIs CotaObra: openQuotes, pendingProposals, savings30d, activeSites.
+ */
+export interface CotaObraKpis {
+  openQuotes: number;
+  pendingProposals: number;
+  savings30d: number;
+  activeSites: number;
+}
+
+export function useCotaObraKpis() {
+  return useQuery({
+    queryKey: ['dashboard-kpis'],
+    queryFn: async () => {
+      const { data } = await api.get<{ success: boolean; data: CotaObraKpis }>(
+        '/dashboard/kpis',
+      );
+      return data.data;
+    },
+    staleTime: 60_000, // 1 min — KPIs não mudam tão rápido
+  });
+}

@@ -5,6 +5,51 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.2.0 — Sprint 1 (Fundação de domínio: Obra & Material)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-1-02 Backend `sites/`**: módulo CRUD com RBAC por role (REQUESTER vê apenas obras em `siteIds`, BUYER read/write, ADMIN full, APPROVER read-only). Endpoints `GET/POST /api/sites`, `GET/PATCH/DELETE /api/sites/:id`. Validações zod: name ≥ 3 chars, CNO 12 dígitos, UF ∈ lista BR, managerPhone E.164, budget ≥ 0. Soft delete via status=COMPLETED.
+- **CO-1-04 Hook `useSites`**: React Query com `useSites`, `useSite`, `useCreateSite`, `useUpdateSite`, `useArchiveSite`. Tipos `Site`, `CreateSiteDTO`, `UpdateSiteDTO`, `SiteFilters` espelham schema Prisma.
+- **CO-1-03 Tela `Sites.tsx` + `SiteFormModal.tsx`**: lista em cards (3 col desktop / 1 mobile) com filtros por status (ACTIVE/PAUSED/COMPLETED/CANCELLED) e busca livre, paginação 20/página, empty state com CTA. Form modal com máscara BR para orçamento (R$ X.XXX,XX), validação em tempo real, dropdown de 27 UFs.
+- **CO-1-06 Backend `materials/`**: CRUD + endpoint `POST /materials/import-csv` (multipart, multer 1MB, papaparse). Suporta upsert via (tenantId, sku); valida categoria contra MATERIAL_CATEGORIES e unidade via unit-normalizer. Material com tenantId=null é catálogo da rede (compartilhado, só SUPER_ADMIN edita). 17 categorias de construção. Resposta do import: `{created, updated, errors:[{line,message}]}`.
+- **CO-1-07 Tela `Materials.tsx` + `MaterialFormModal` + `MaterialCsvImporter`**: tabela paginada (50/página), busca debounced 300ms, filtro por categoria. Modal de import com drag-and-drop, preview das 5 primeiras linhas, resultado com erros por linha. Distinção visual entre catálogo da rede e próprio (badges azul/cinza).
+- **CO-1-08 Supplier categories validation**: zod `supplierCategoriesSchema` no backend rejeita categoria não cadastrada com 422 (`UNPROCESSABLE_ENTITY`); aceita sinônimos via `resolveCategoryValue` (areia → agregados, etc.). Frontend `types/supplier.ts` agora re-exporta `MATERIAL_CATEGORIES`; cores dos badges atualizadas para as 17 categorias construção.
+- **CO-1-09 Permission seed por role**: novo service `permission-seed.service.ts` com matriz canônica `ROLE_PERMISSIONS` cobrindo os 12 Resources × 6 roles. Idempotente (upsert). Chamado em `seed.ts` para admin/buyer/requester do tenant demo. Pronto para ser reutilizado pelo super-admin na criação de novos users (Sprint 2+).
+- **CO-1-10 `Quote.siteId`**: campo adicionado (nullable na fase 1; NOT NULL será aplicado na Sprint 2 após FSM ter o estado AWAITING_SITE_SELECTION em produção). FK Restrict para preservar histórico. Index criado. Migration `20260518000030_*` documenta as 2 fases.
+- **CO-1-11 Producer marcado como legacy**: `@@map("_legacy_producers")` no schema (rename físico da tabela). Migration `20260518000040_*` faz `RENAME TABLE`. Comentário inline explica que remoção definitiva é Sprint 3 (após FSM Sprint 2).
+- **CO-1-12 Dashboard KPIs**: novo método `getCotaObraKpis` no `DashboardService` retorna `{ openQuotes, pendingProposals, savings30d, activeSites }`. Endpoint `GET /api/dashboard/kpis`. Hook `useCotaObraKpis` com staleTime 60s. 4 KPI cards no topo do Dashboard com skeleton state durante loading. `savings30d` calculado como soma das diferenças max-min de propostas em cotações fechadas nos últimos 30 dias (proxy do pricing-engine que entra em Sprint 4).
+
+### Mudanças
+
+- `error-handler.ts`: novo método `createError.unprocessable` (422).
+- `frontend/src/data/material-categories.ts`: novo arquivo (espelho do backend) com `MATERIAL_CATEGORIES`, `MATERIAL_CATEGORY_LABEL`, `UNITS` para uso em telas.
+- `Sidebar.tsx` e `BottomNav.tsx`: adicionado item "Materiais" (ícone Package); resource das obras corrigido de PRODUCERS para SITES.
+- `App.tsx`: rotas `/sites` e `/materials` apontam para as telas reais (substituem SitesPlaceholder).
+- `brazil-locations.ts`: arquivo recuperado do cotaAgro (estava faltando no copy inicial do Sprint 0; quebrava typecheck do SupplierFormModal).
+
+### Migrations adicionadas
+
+- `20260518000030_co_1_10_quote_site_id/`: adiciona Quote.siteId (nullable) + FK Restrict + index.
+- `20260518000040_co_1_11_rename_producers_to_legacy/`: renomeia tabela producers → _legacy_producers.
+
+### Pendente / Tech debt
+
+- **CO-1-10 fase 2**: tornar Quote.siteId NOT NULL após FSM Sprint 2 garantir preenchimento.
+- **CO-1-09**: REQUESTER/APPROVER/BUYER ainda não foram cabeados em todos os endpoints — RBAC via middleware `requirePermission` ainda usa o esquema legado de roles. Migração planejada para Sprint 2 (quando os endpoints novos forem acessados por esses roles).
+- **CO-1-13 Demo + Retro**: tasks de processo, não executadas nesta sessão.
+- **CO-1-08 frontend**: o `SupplierFormModal` ainda renderiza o dropdown com os values antigos (semente/fertilizante etc.) porque importa SUPPLIER_CATEGORIES de `types/supplier.ts` — agora os values são da construção, mas o componente em si pode precisar revisão visual.
+
+### Resultado
+
+- `npx tsc --noEmit` backend: **0 erros**
+- `npx tsc --noEmit` frontend: **0 erros**
+- `npx jest tests/unit`: **603/607 testes passam** (4 falhas pré-existentes em validators.ts, herdadas do cotaAgro)
+
+---
+
 ## v0.1.0 — Sprint 0 (Fork inicial)
 
 **Data:** 2026-05-18

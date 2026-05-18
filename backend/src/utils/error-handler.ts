@@ -150,4 +150,7 @@ export const createError = {
 
   quotaExceeded: (message = 'Limite de cotações atingido') =>
     new AppError(message, 'QUOTA_EXCEEDED', 429),
+
+  unprocessable: (message = 'Dados inválidos') =>
+    new AppError(message, 'UNPROCESSABLE_ENTITY', 422),
 };

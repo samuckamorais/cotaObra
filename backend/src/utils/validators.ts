@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { normalizePhoneBR } from './phone';
+import {
+  MATERIAL_CATEGORY_VALUES,
+  resolveCategoryValue,
+} from '../constants/material-categories';
 
 // ===================================
 // CPF/CNPJ Validation
@@ -202,11 +206,41 @@ export const updateProducerSchema = z.object({
 // Supplier Validation
 // ===================================
 
+/**
+ * CO-1-08 — valida que cada categoria está em MATERIAL_CATEGORIES.
+ * Aceita value canônico ou label/sinônimo (resolveCategoryValue normaliza).
+ * Retorna array de values canônicos.
+ */
+const supplierCategoriesSchema = z
+  .array(z.string())
+  .min(1, 'Informe ao menos uma categoria')
+  .transform((arr, ctx) => {
+    const resolved: string[] = [];
+    for (const cat of arr) {
+      const v = resolveCategoryValue(cat);
+      if (!v) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Categoria "${cat}" não está na lista de MATERIAL_CATEGORIES`,
+        });
+        return z.NEVER;
+      }
+      resolved.push(v);
+    }
+    // Dedup
+    return Array.from(new Set(resolved));
+  })
+  .pipe(
+    z
+      .array(z.enum(MATERIAL_CATEGORY_VALUES as unknown as [string, ...string[]]))
+      .min(1),
+  );
+
 export const createSupplierSchema = z.object({
   name: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres'),
   phone: phoneSchema,
   regions: z.array(z.string()).min(1, 'Informe ao menos uma região'),
-  categories: z.array(z.string()).min(1, 'Informe ao menos uma categoria'),
+  categories: supplierCategoriesSchema,
   isNetworkSupplier: z.boolean().optional(),
 });
 
@@ -214,7 +248,7 @@ export const updateSupplierSchema = z.object({
   name: z.string().min(3).optional(),
   phone: phoneSchema.optional(),
   regions: z.array(z.string()).min(1).optional(),
-  categories: z.array(z.string()).min(1).optional(),
+  categories: supplierCategoriesSchema.optional(),
   isNetworkSupplier: z.boolean().optional(),
 });
 

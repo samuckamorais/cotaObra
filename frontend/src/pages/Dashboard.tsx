@@ -7,7 +7,7 @@ import { SkeletonCard } from '../components/ui/skeleton';
 import { Button } from '../components/ui/button';
 import { OnboardingChecklist } from '../components/onboarding/OnboardingChecklist';
 import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
-import { useDashboard } from '../hooks/useDashboard';
+import { useDashboard, useCotaObraKpis } from '../hooks/useDashboard';
 import { useSettings, useUpdateSettings, WinnerNotificationType } from '../hooks/useSettings';
 import { useToast } from '../hooks/use-toast';
 import {
@@ -30,6 +30,8 @@ import { useNavigate } from 'react-router-dom';
 
 export function Dashboard() {
   const { data, isLoading, error } = useDashboard();
+  // CO-1-12 — 4 KPIs CotaObra
+  const { data: kpis, isLoading: kpisLoading } = useCotaObraKpis();
   const navigate = useNavigate();
   const { steps, markStepComplete, isComplete } = useOnboardingProgress();
   const { data: settings } = useSettings();
@@ -125,6 +127,32 @@ export function Dashboard() {
         <div>
           <h1 className="text-xl md:text-2xl font-medium text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">Visão geral completa do sistema</p>
+        </div>
+
+        {/* CO-1-12 — KPIs CotaObra (4 cards) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Cotações abertas', value: kpis?.openQuotes, fmt: (v: number) => v.toString() },
+            { label: 'Propostas pendentes', value: kpis?.pendingProposals, fmt: (v: number) => v.toString() },
+            {
+              label: 'Economia 30d',
+              value: kpis?.savings30d,
+              fmt: (v: number) =>
+                new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v),
+            },
+            { label: 'Obras ativas', value: kpis?.activeSites, fmt: (v: number) => v.toString() },
+          ].map((kpi) => (
+            <div key={kpi.label} className="rounded-lg border border-border bg-card p-4">
+              <p className="text-xs uppercase text-muted-foreground tracking-wide">
+                {kpi.label}
+              </p>
+              {kpisLoading || kpi.value === undefined ? (
+                <div className="h-8 w-20 mt-2 bg-muted rounded animate-pulse" />
+              ) : (
+                <p className="text-2xl font-semibold mt-1">{kpi.fmt(kpi.value)}</p>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* Onboarding Checklist - Show if not complete */}

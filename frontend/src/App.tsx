@@ -24,9 +24,10 @@ import { ForcedChangePassword } from './pages/ForcedChangePassword';
 import { ForcedFlowGuard, RequireSuperAdmin } from './components/guards/AdminGuards';
 
 // CO-0-08: páginas Landing/PreLaunch/ComingSoon/Producers removidas no Sprint 0.
-// Landing nova específica do CotaObra entra na Sprint 1+ (CO-1-13).
-// Sites (Obras) é placeholder; CRUD real entra em CO-1-10/11/12.
-const SitesPlaceholder = lazy(() => import('./pages/SitesPlaceholder'));
+// CO-1-03: SitesPlaceholder substituído pela tela Sites.tsx real (CRUD).
+// CO-1-07: Materials.tsx (catálogo) com import CSV.
+const Sites = lazy(() => import('./pages/Sites'));
+const Materials = lazy(() => import('./pages/Materials'));
 
 // Lazy load route components for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
@@ -132,8 +133,9 @@ function ProtectedLayout() {
                 <Route path="/quotes" element={<Quotes />} />
                 <Route path="/quotes/:id" element={<QuoteDetail />} />
                 <Route path="/quotes/:id/resultados" element={<QuoteResults />} />
-                {/* CO-0-08: /producers removido; /sites é placeholder até Sprint 1. */}
-                <Route path="/sites" element={<SitesPlaceholder />} />
+                {/* CO-1-03/07: Sites e Materials CRUDs entregues na Sprint 1. */}
+                <Route path="/sites" element={<Sites />} />
+                <Route path="/materials" element={<Materials />} />
                 <Route path="/suppliers" element={<Suppliers />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/subscriptions" element={<Subscriptions />} />
@@ -165,7 +167,8 @@ function ProtectedLayout() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/quotes" element={<Quotes />} />
               <Route path="/quotes/:id" element={<QuoteDetail />} />
-              <Route path="/sites" element={<SitesPlaceholder />} />
+              <Route path="/sites" element={<Sites />} />
+              <Route path="/materials" element={<Materials />} />
               <Route path="/suppliers" element={<Suppliers />} />
               <Route path="/users" element={<Users />} />
               <Route path="/subscriptions" element={<Subscriptions />} />

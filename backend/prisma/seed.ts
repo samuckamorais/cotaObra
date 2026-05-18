@@ -22,6 +22,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { seedPermissionsBulk } from "../src/services/permission-seed.service";
 
 const prisma = new PrismaClient();
 
@@ -406,6 +407,14 @@ async function main() {
   await linkRequesterToSite(users.requester.id, site.id);
   await seedSuppliers(tenant.id);
   await seedCustomMaterials(tenant.id);
+
+  // CO-1-09: popula Permission para cada role
+  log("Permissions: matriz padrão por role (ADMIN/BUYER/REQUESTER)");
+  await seedPermissionsBulk(prisma, [
+    { id: users.admin.id, role: "ADMIN" },
+    { id: users.buyer.id, role: "BUYER" },
+    { id: users.requester.id, role: "REQUESTER" },
+  ]);
 
   console.log("\n✅ Seed completo. Credenciais:");
   console.log("   admin     → admin@cotaobra.dev      | senha-dev-123");

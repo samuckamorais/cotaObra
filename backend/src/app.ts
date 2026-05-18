@@ -14,6 +14,8 @@ import { WhatsAppConfigController } from './modules/whatsapp-config/whatsapp-con
 import { AuthController } from './modules/auth/auth.controller';
 import { ProducerController } from './modules/producers/producer.controller';
 import { SupplierController } from './modules/suppliers/supplier.controller';
+import { SiteController } from './modules/sites/site.controller';
+import { MaterialController, materialUpload } from './modules/materials/material.controller';
 import { QuoteController } from './modules/quotes/quote.controller';
 import { QuotePdfController } from './modules/quotes/quote-pdf.controller';
 import { DashboardController } from './modules/dashboard/dashboard.controller';
@@ -114,6 +116,7 @@ export function createApp(): Application {
   // Dashboard routes (protected + tenant isolation)
   apiRouter.get('/dashboard', authenticate, requireTenant, DashboardController.getDashboard);
   apiRouter.get('/dashboard/stats', authenticate, requireTenant, DashboardController.getStats);
+  apiRouter.get('/dashboard/kpis', authenticate, requireTenant, DashboardController.getKpis);
   apiRouter.get('/dashboard/quotes-by-day', authenticate, requireTenant, DashboardController.getQuotesByDay);
   apiRouter.get('/dashboard/top-products', authenticate, requireTenant, DashboardController.getTopProducts);
 
@@ -133,6 +136,27 @@ export function createApp(): Application {
   apiRouter.post('/suppliers', authenticate, requireTenant, SupplierController.create);
   apiRouter.put('/suppliers/:id', authenticate, requireTenant, SupplierController.update);
   apiRouter.delete('/suppliers/:id', authenticate, requireTenant, SupplierController.delete);
+
+  // CO-1-02 — Sites (Obras) routes
+  apiRouter.get('/sites', authenticate, requireTenant, SiteController.list);
+  apiRouter.get('/sites/:id', authenticate, requireTenant, SiteController.getById);
+  apiRouter.post('/sites', authenticate, requireTenant, SiteController.create);
+  apiRouter.patch('/sites/:id', authenticate, requireTenant, SiteController.update);
+  apiRouter.delete('/sites/:id', authenticate, requireTenant, SiteController.delete);
+
+  // CO-1-06 — Materials routes
+  apiRouter.get('/materials', authenticate, requireTenant, MaterialController.list);
+  apiRouter.get('/materials/:id', authenticate, requireTenant, MaterialController.getById);
+  apiRouter.post('/materials', authenticate, requireTenant, MaterialController.create);
+  apiRouter.patch('/materials/:id', authenticate, requireTenant, MaterialController.update);
+  apiRouter.delete('/materials/:id', authenticate, requireTenant, MaterialController.delete);
+  apiRouter.post(
+    '/materials/import-csv',
+    authenticate,
+    requireTenant,
+    materialUpload.single('file'),
+    MaterialController.importCsv,
+  );
 
   // Quote routes (protected + tenant isolation)
   apiRouter.get('/quotes/stats', authenticate, requireTenant, QuoteController.getStats);

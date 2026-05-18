@@ -17,6 +17,16 @@ export class DashboardController {
   });
 
   /**
+   * GET /api/dashboard/kpis — CO-1-12
+   * Retorna os 4 KPIs CotaObra (openQuotes, pendingProposals, savings30d, activeSites).
+   */
+  static getKpis = ErrorHandler.asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const tenantId = (req as any).user?.tenantId!;
+    const kpis = await DashboardService.getCotaObraKpis(tenantId);
+    res.json({ success: true, data: kpis });
+  });
+
+  /**
    * GET /api/dashboard/quotes-by-day
    */
   static getQuotesByDay = ErrorHandler.asyncHandler(async (req: Request, res: Response): Promise<void> => {

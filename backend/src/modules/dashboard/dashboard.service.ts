@@ -4,6 +4,70 @@ import { env } from '../../config/env';
 
 export class DashboardService {
   /**
+   * CO-1-12 — KPIs principais do dashboard CotaObra.
+   *
+   * 4 cards principais:
+   *   - openQuotes        cotações abertas (PENDING/COLLECTING/SUMMARIZED)
+   *   - pendingProposals  propostas recebidas em cotações abertas (não fechadas)
+   *   - savings30d        economia em R$ nas cotações fechadas nos últimos 30d
+   *                        (delta entre maior e menor preço corrigido)
+   *   - activeSites       obras com status ACTIVE no tenant
+   */
+  static async getCotaObraKpis(tenantId: string) {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const openStatuses = ['PENDING', 'COLLECTING', 'SUMMARIZED'] as const;
+
+    const [openQuotes, pendingProposals, closedRecent, activeSites] = await Promise.all([
+      prisma.quote.count({
+        where: { tenantId, status: { in: openStatuses as any } },
+      }),
+      prisma.proposal.count({
+        where: {
+          tenantId,
+          quote: { status: { in: openStatuses as any } },
+        },
+      }),
+      // Cotações fechadas nos últimos 30 dias com propostas
+      prisma.quote.findMany({
+        where: {
+          tenantId,
+          status: 'CLOSED',
+          createdAt: { gte: thirtyDaysAgo },
+        },
+        include: {
+          proposals: { select: { totalPrice: true } },
+        },
+      }),
+      prisma.site.count({
+        where: { tenantId, status: 'ACTIVE' },
+      }),
+    ]);
+
+    // Economia = soma de (maior_proposta - menor_proposta) por cotação fechada
+    // É um proxy do que pricing-engine vai calcular com mais precisão na Sprint 4.
+    let savings30d = 0;
+    for (const q of closedRecent) {
+      const prices = q.proposals
+        .map((p: any) => Number(p.totalPrice))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (prices.length >= 2) {
+        const max = Math.max(...prices);
+        const min = Math.min(...prices);
+        savings30d += max - min;
+      }
+    }
+
+    return {
+      openQuotes,
+      pendingProposals,
+      savings30d: Math.round(savings30d * 100) / 100,
+      activeSites,
+    };
+  }
+
+  /**
    * KPIs principais do dashboard
    */
   static async getStats(tenantId: string): Promise<DashboardStats> {

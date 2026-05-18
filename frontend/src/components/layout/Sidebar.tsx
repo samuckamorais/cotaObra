@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, FileText, HardHat, Building2, CreditCard, Shield, MessageSquare, Settings2, BarChart2, Globe2, UserCog, ClipboardList } from 'lucide-react';
+import { Home, FileText, HardHat, Package, Building2, CreditCard, Shield, MessageSquare, Settings2, BarChart2, Globe2, UserCog, ClipboardList } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { LogoMark } from '../ui/logo';
@@ -8,8 +8,9 @@ import { useSidebarBadges } from '../../hooks/useSidebarBadges';
 const menuItems = [
   { name: 'Dashboard', path: '/dashboard', icon: Home, resource: 'DASHBOARD' },
   { name: 'Cotações', path: '/quotes', icon: FileText, resource: 'QUOTES' },
-  // CO-0-08: 'Produtores' substituído por 'Obras' (placeholder até Sprint 1).
-  { name: 'Obras', path: '/sites', icon: HardHat, resource: 'PRODUCERS' },
+  // CO-1-03/07: Obras + Materiais entregues na Sprint 1.
+  { name: 'Obras', path: '/sites', icon: HardHat, resource: 'SITES' },
+  { name: 'Materiais', path: '/materials', icon: Package, resource: 'MATERIALS' },
   { name: 'Fornecedores', path: '/suppliers', icon: Building2, resource: 'SUPPLIERS' },
   { name: 'Assinaturas', path: '/subscriptions', icon: CreditCard, resource: 'SUBSCRIPTIONS' },
   { name: 'WhatsApp', path: '/whatsapp', icon: MessageSquare, resource: 'WHATSAPP_CONFIG' },
