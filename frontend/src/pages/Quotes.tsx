@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { useQuotes, useQuoteStats } from '../hooks/useQuotes';
+import { useSites } from '../hooks/useSites';
 import { formatDate } from '../lib/utils';
 import {
   ChevronLeft,
@@ -181,26 +182,60 @@ function QuoteCardSkeleton() {
 
 // ─── Página principal ────────────────────────────────────────────────────────
 
+type PeriodKey = '7d' | '30d' | '90d' | 'all';
+
 export function Quotes() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabKey>('ativas');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // CO-4-08 — filtros com persistência em querystring
+  const tabFromQs = (searchParams.get('tab') as TabKey | null) ?? 'ativas';
+  const siteFromQs = searchParams.get('siteId') ?? '';
+  const periodFromQs = (searchParams.get('period') as PeriodKey | null) ?? '30d';
+
+  const [activeTab, setActiveTab] = useState<TabKey>(tabFromQs);
+  const [siteId, setSiteId] = useState<string>(siteFromQs);
+  const [period, setPeriod] = useState<PeriodKey>(periodFromQs);
   const [page, setPage] = useState(1);
   const limit = 20;
+
+  // Sync state → querystring
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (activeTab !== 'ativas') next.set('tab', activeTab);
+    if (siteId) next.set('siteId', siteId);
+    if (period !== '30d') next.set('period', period);
+    setSearchParams(next, { replace: true });
+  }, [activeTab, siteId, period, setSearchParams]);
 
   const currentTab = tabs.find((t) => t.key === activeTab)!;
 
   // Para a tab "ativas" não passamos statusFilter — buscamos todas e filtramos no cliente
   const statusParam = activeTab === 'todas' ? undefined : currentTab.statusFilter;
 
-  const { data, isLoading } = useQuotes(page, limit, statusParam ? { status: statusParam } : {});
+  // Carrega obras ativas pra dropdown de filtro
+  const { data: sitesData } = useSites(1, 100, { status: 'ACTIVE' });
+
+  const { data, isLoading } = useQuotes(
+    page,
+    limit,
+    statusParam ? { status: statusParam, siteId: siteId || undefined } : { siteId: siteId || undefined },
+  );
   const { data: stats, isLoading: statsLoading } = useQuoteStats();
 
   // Filtragem client-side para a tab "ativas" (múltiplos status)
   const allQuotes: any[] = data?.data ?? [];
-  const quotes =
+  let quotes =
     activeTab === 'ativas'
       ? allQuotes.filter((q) => activeStatuses.has(q.status))
       : allQuotes;
+
+  // CO-4-08 filtro de período client-side
+  if (period !== 'all') {
+    const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    quotes = quotes.filter((q) => new Date(q.createdAt).getTime() >= since);
+  }
 
   const pagination = data?.pagination;
 
@@ -223,11 +258,45 @@ export function Quotes() {
   return (
     <div className="px-4 py-4 md:px-6 md:py-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-xl md:text-2xl font-medium text-foreground">Cotações</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Acompanhe as cotações solicitadas via WhatsApp
-        </p>
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+        <div>
+          <h1 className="text-xl md:text-2xl font-medium text-foreground">Cotações</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Acompanhe as cotações solicitadas via WhatsApp
+          </p>
+        </div>
+
+        {/* CO-4-08 — filtros adicionais (querystring-backed) */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <select
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm min-w-[180px]"
+            value={siteId}
+            onChange={(e) => {
+              setSiteId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">Todas as obras</option>
+            {(sitesData?.data ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={period}
+            onChange={(e) => {
+              setPeriod(e.target.value as PeriodKey);
+              setPage(1);
+            }}
+          >
+            <option value="7d">Últimos 7 dias</option>
+            <option value="30d">Últimos 30 dias</option>
+            <option value="90d">Últimos 90 dias</option>
+            <option value="all">Todo o histórico</option>
+          </select>
+        </div>
       </div>
 
       {/* Stats */}

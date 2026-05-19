@@ -17,6 +17,8 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { SupplierStatusGrid } from '../components/quotes/SupplierStatusGrid';
+import { PricingComparator } from '../components/quotes/PricingComparator';
+import { api } from '../api/client';
 
 const statusColors: Record<string, 'success' | 'warning' | 'error' | 'default' | 'info'> = {
   PENDING: 'default',
@@ -188,6 +190,37 @@ export function QuoteDetail() {
       {/* CO-3-09 — Quadro de status dos fornecedores convidados */}
       {(quote.status === 'COLLECTING' || quote.status === 'SUMMARIZED') && (
         <SupplierStatusGrid quoteId={quote.id} />
+      )}
+
+      {/* CO-4-05 — Quadro comparativo (pricing engine) */}
+      {(quote.status === 'SUMMARIZED' || quote.status === 'CLOSED') && (
+        <PricingComparator
+          quoteId={quote.id}
+          onClickExport={async () => {
+            try {
+              const res = await api.get(`/quotes/${quote.id}/export?format=xlsx`, {
+                responseType: 'blob',
+              });
+              const blob = new Blob([res.data], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `cotacao-${quote.id.slice(0, 8)}-comparativo.xlsx`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            } catch (err) {
+              toast({
+                title: 'Erro ao exportar',
+                description: 'Tente novamente.',
+                variant: 'destructive',
+              });
+            }
+          }}
+        />
       )}
 
       {/* Propostas */}

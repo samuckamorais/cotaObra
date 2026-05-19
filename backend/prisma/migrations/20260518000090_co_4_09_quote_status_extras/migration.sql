@@ -1,0 +1,5 @@
+-- CotaObra — CO-4-09: novos valores do enum QuoteStatus para state machine.
+
+ALTER TYPE "QuoteStatus" ADD VALUE IF NOT EXISTS 'AWAITING_BUYER_REVIEW';
+ALTER TYPE "QuoteStatus" ADD VALUE IF NOT EXISTS 'AWAITING_APPROVAL';
+ALTER TYPE "QuoteStatus" ADD VALUE IF NOT EXISTS 'CANCELLED';

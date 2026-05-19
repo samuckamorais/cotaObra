@@ -5,6 +5,9 @@ import { createQuoteSchema, paginationSchema } from '../../utils/validators';
 import { QuoteResultsService } from '../../services/quote-results.service';
 import { SupplierSuggestionService } from '../../services/supplier-suggestion.service';
 import { SupplierStatusService } from '../../services/supplier-status.service';
+import { ComparativeService } from '../../services/comparative.service';
+import { ComparativeXlsxService } from '../../services/comparative-xlsx.service';
+import { getAuthContext } from '../../utils/auth-context';
 import { z } from 'zod';
 
 export class QuoteController {
@@ -176,6 +179,51 @@ export class QuoteController {
       const tenantId = (req as any).user?.tenantId!;
       const data = await SupplierStatusService.listForQuote(tenantId, id);
       res.json({ success: true, data });
+    },
+  );
+
+  /**
+   * GET /api/quotes/:id/comparative
+   * CO-4-03 — Payload pronto para o PricingComparator: items × proposals
+   * com ranking corrigido + breakdown. REQUESTER recebe versão sem preços.
+   */
+  static comparative = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      const { id } = req.params;
+      const ctx = getAuthContext(req);
+      const data = await ComparativeService.getForQuote(ctx, id);
+      res.json({ success: true, data });
+    },
+  );
+
+  /**
+   * GET /api/quotes/:id/export?format=xlsx
+   * CO-4-07 — Exporta o quadro comparativo em Excel (2 sheets: Resumo + Detalhe).
+   */
+  static exportComparative = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      const { id } = req.params;
+      const ctx = getAuthContext(req);
+      const format = (req.query.format as string) || 'xlsx';
+
+      if (format !== 'xlsx') {
+        throw createError.badRequest(`Formato "${format}" não suportado. Use format=xlsx.`);
+      }
+
+      if (ctx.role === 'REQUESTER') {
+        throw createError.forbidden('Solicitante não pode exportar comparativo com preços');
+      }
+
+      const data = await ComparativeService.getForQuote(ctx, id);
+      const buffer = await ComparativeXlsxService.generate(data);
+      const filename = `cotacao-${id.slice(0, 8)}-comparativo.xlsx`;
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
     },
   );
 

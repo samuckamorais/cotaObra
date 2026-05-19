@@ -7,6 +7,12 @@ import { env } from '../config/env';
 import { JobLockService } from '../services/job-lock.service';
 import { analyticsService } from '../services/analytics.service';
 import { sseManager } from '../lib/sse-manager';
+// CO-4-02: pricing-engine para calcular ranking corrigido durante consolidação.
+import {
+  rankProposals,
+  DEFAULT_PRICING_SETTINGS,
+  type PricingSettings,
+} from '../services/pricing-engine.service';
 
 function resultsUrl(quoteId: string): string {
   return `${env.FRONTEND_URL}/quotes/${quoteId}/resultados`;
@@ -158,6 +164,67 @@ export async function consolidateQuote(quoteId: string): Promise<void> {
 
     // Total de itens da cotação (para indicador de proposta parcial)
     const totalItems = quote.items.length;
+
+    // ────────────────────────────────────────────────────────────────────
+    // CO-4-02: roda pricing-engine e persiste correctedTotal/rank/breakdown
+    // ────────────────────────────────────────────────────────────────────
+    try {
+      // Carrega settings do tenant para usar monthlyRate/dailyPenalty configurados
+      const tenantSettings = await prisma.tenantSettings.findUnique({
+        where: { tenantId: quote.tenantId },
+        select: { paymentPolicy: true },
+      });
+      const pricingSettings: PricingSettings = {
+        ...DEFAULT_PRICING_SETTINGS,
+        ...(tenantSettings?.paymentPolicy as Partial<PricingSettings> | null ?? {}),
+      };
+
+      // Calcula deadlineDays: dias entre createdAt e deadline
+      const deadlineDays = Math.max(
+        0,
+        Math.round(
+          (quote.deadline.getTime() - quote.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+        ),
+      );
+
+      const proposalsForRanking = quote.proposals.map((p) => ({
+        id: p.id,
+        items: p.items.map((it: any) => ({
+          totalPrice: it.totalPrice,
+          available: it.available ?? true,
+        })),
+        freightMode: p.freightMode,
+        freightValue: p.freightValue ?? 0,
+        paymentTerms: p.paymentTerms,
+        deliveryDays: p.deliveryDays,
+      }));
+      const ranked = rankProposals(proposalsForRanking, { deadlineDays }, pricingSettings);
+
+      // Persiste em paralelo (each update independente)
+      await Promise.all(
+        ranked.map((r) =>
+          prisma.proposal.update({
+            where: { id: r.id },
+            data: {
+              correctedTotal: r.corrected as any, // Prisma.Decimal já compatível
+              breakdown: r.breakdown as any,
+              rank: r.rank,
+            },
+          }),
+        ),
+      );
+
+      logWithContext('info', 'Pricing engine applied', {
+        quoteId,
+        proposalsCount: ranked.length,
+        winnerId: ranked[0]?.id,
+      });
+    } catch (err: any) {
+      logger.warn('Pricing engine failed during consolidation (continuing without)', {
+        quoteId,
+        err: err?.message,
+      });
+    }
 
     // Weighted score: price 60%, rating 25%, delivery 15%
     const maxPrice = Math.max(...quote.proposals.map(p => p.price), 1);

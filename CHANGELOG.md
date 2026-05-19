@@ -5,6 +5,43 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.5.0 — Sprint 4 (Pricing Engine & Quadro Comparativo)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-4-01 `pricing-engine.service.ts`** — coração da diferenciação CotaObra vs CotaAgro. Pure function `computeCorrectedTotal` retorna `{ corrected, breakdown }`. Fórmula: `corrected = base + freight(CIF=0/FOB=valor) + base*monthlyRate*weightedDays/30 + base*dailyPenalty*max(0,delivery-deadline)`. weightedDays: à vista=0, 28dd=28, 28/56dd=42, 30/60/90dd=60 + parser custom A/B/Cdd. Usa `Prisma.Decimal` (não Float). `rankProposals` ordena ASC e atribui rank 1..N. **36 testes 100% cobertura**.
+- **CO-4-02 consolidate-quote** — roda pricing-engine após carregar propostas e persiste `correctedTotal/breakdown/rank` em paralelo. Settings do tenant via `TenantSettings.paymentPolicy`. Erro do engine não bloqueia (log warn + continua).
+- **CO-4-03 `ComparativeService` + endpoint `GET /api/quotes/:id/comparative`** — payload pronto para o componente, com `itemRank` calculado server-side (rank por unitPrice de cada item). **RBAC**: REQUESTER recebe versão `redacted` (sem preços absolutos).
+- **CO-4-04 `PricingComparator` componente** — tabela responsiva item × fornecedor com coluna "Item" sticky no mobile, badge "1º preço" no menor unitPrice por item, coluna vencedora (rank=1) fundo verde, hover na célula CORRIGIDO mostra breakdown detalhado (5 linhas: base/frete/financeiro/atraso/total). Estado `redacted` mostra "oculto".
+- **CO-4-05 QuoteDetail integration** — `PricingComparator` renderizado quando `status === SUMMARIZED || CLOSED`. Botão "Exportar XLSX" dispara download (`responseType: 'blob'` + `URL.createObjectURL`).
+- **CO-4-07 Export XLSX `ComparativeXlsxService`** — 2 sheets: **Resumo** (linha por fornecedor com totais + breakdown) + **Detalhe** (matriz item × fornecedor). Vencedor destacado em verde + negrito; coluna "Total CORRIGIDO" sempre em negrito. Formatação `R$ #,##0.00`. Endpoint `GET /api/quotes/:id/export?format=xlsx`. REQUESTER bloqueado com 403.
+- **CO-4-08 `Quotes.tsx` filtros** — dropdown de obra (carrega `useSites`) + dropdown de período (7d/30d/90d/all, default 30d). **Persistência em querystring** via `useSearchParams`. Filtragem de período client-side; filtro de site enviado ao backend.
+- **CO-4-09 state machine `quote-status.service`** — `ALLOWED_TRANSITIONS` matriz canônica com 8 estados (PENDING / AWAITING_BUYER_REVIEW / COLLECTING / SUMMARIZED / AWAITING_APPROVAL / CLOSED / EXPIRED / CANCELLED). `transitionQuote(quoteId, newStatus, { userId, reason })` valida transição + grava `AuditLog` (best-effort). 422 se inválida; idempotente em mesmo status. CANCELLED exige motivo ≥ 3 chars.
+
+### Schema
+
+- `Proposal.correctedTotal Decimal? @db.Decimal(14,2)` + `breakdown Json?` + `rank Int?` + `freightMode String?` + `freightValue Float?` + índice `(quoteId, rank)`.
+- Enum `QuoteStatus` ganha `AWAITING_BUYER_REVIEW`, `AWAITING_APPROVAL`, `CANCELLED`.
+
+### Migrations adicionadas
+
+- `20260518000080_co_4_01_proposal_corrected_total/` — campos pricing.
+- `20260518000090_co_4_09_quote_status_extras/` — valores do enum QuoteStatus.
+
+### Não entregue (deferido)
+
+- **CO-4-06 SSE quote.consolidated** — sino in-app + email ao consolidar. `sse-manager.ts` existe mas o evento não é publicado pelo job; ~1h de trabalho pendente. P1 — não bloqueia.
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+- backend `jest tests/unit`: **656/656** ✅ (subiu de 620 — pricing-engine adicionou 36 testes 100% cobertura)
+
+---
+
 ## v0.4.0 — Sprint 3 (Dispatch & FSM Fornecedor)
 
 **Data:** 2026-05-18

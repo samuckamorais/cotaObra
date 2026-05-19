@@ -279,6 +279,20 @@ model Proposal {
   observations  String?
   isOwnSupplier Boolean  @default(false)
   isPartial     Boolean  @default(false) // true quando fornecedor não cotou todos os itens
+
+  // CO-3-04: modo de frete da proposta (CIF/FOB). Quando FOB, freightValue
+  // representa o custo de frete a ser pago separadamente pelo comprador.
+  freightMode   String?  // 'CIF' | 'FOB' | null (cotações antigas)
+  freightValue  Float?   @default(0)
+
+  // CO-4-01/02: ranking corrigido calculado pelo pricing-engine na consolidação.
+  // correctedTotal = base + freight + financialCost + deliveryAdjustment
+  // breakdown JSON expõe os 4 componentes para tooltip no UI.
+  // rank: 1 = vencedor (menor correctedTotal). null = ainda não consolidada.
+  correctedTotal Decimal?  @db.Decimal(14, 2)
+  breakdown      Json?
+  rank           Int?
+
   createdAt     DateTime @default(now())
 
   items ProposalItem[]
@@ -287,6 +301,7 @@ model Proposal {
   @@index([quoteId])
   @@index([createdAt])
   @@index([quoteId, createdAt])
+  @@index([quoteId, rank])
   @@map("proposals")
 }
 
@@ -723,10 +738,16 @@ enum SupplierScope {
 
 enum QuoteStatus {
   PENDING // cotação criada, ainda não disparada
+  // CO-4-09: estados intermediários — AWAITING_BUYER_REVIEW antes do dispatch
+  // (recém-promovida de QuoteRequest); AWAITING_APPROVAL antes do close
+  // (Sprint 6); CANCELLED para descarte explícito pelo comprador.
+  AWAITING_BUYER_REVIEW // promovida de QuoteRequest, comprador refina antes do dispatch
   COLLECTING // cotação disparada, aguardando propostas
   SUMMARIZED // propostas consolidadas, aguardando escolha
+  AWAITING_APPROVAL // valor acima do approvalThreshold; aguarda diretor (Sprint 6)
   CLOSED // cotação fechada com fornecedor
   EXPIRED // prazo expirado
+  CANCELLED // cancelada pelo comprador antes do fechamento
 }
 
 enum PlanType {

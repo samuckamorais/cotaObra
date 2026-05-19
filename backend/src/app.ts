@@ -180,6 +180,10 @@ export function createApp(): Application {
   apiRouter.get('/quotes/:id/suggested-suppliers', authenticate, requireTenant, QuoteController.suggestedSuppliers);
   // CO-3-09 — quadro de status dos fornecedores convidados
   apiRouter.get('/quotes/:id/supplier-status', authenticate, requireTenant, QuoteController.supplierStatus);
+  // CO-4-03 — quadro comparativo (pricing engine + ranking corrigido)
+  apiRouter.get('/quotes/:id/comparative', authenticate, requireTenant, QuoteController.comparative);
+  // CO-4-07 — exportação XLSX do comparativo
+  apiRouter.get('/quotes/:id/export', authenticate, requireTenant, QuoteController.exportComparative);
   apiRouter.put('/quotes/:id/close', authenticate, requireTenant, QuoteController.close);
   apiRouter.post('/quotes/:id/close-total', authenticate, requireTenant, QuoteController.closeWithTotalWinner);
   apiRouter.post('/quotes/:id/close-by-item', authenticate, requireTenant, QuoteController.closeWithItemWinners);
