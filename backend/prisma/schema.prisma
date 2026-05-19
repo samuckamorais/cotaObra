@@ -39,6 +39,8 @@ model Tenant {
   sites                 Site[]
   materials             Material[]
   quoteRequests         QuoteRequest[]
+  purchaseOrders        PurchaseOrder[]
+  priceHistoryRaw       PriceHistoryRaw[]
 
   @@index([slug])
   @@index([active])
@@ -188,6 +190,8 @@ model Supplier {
   proposalTokens        ProposalToken[]
   quoteNotifications    QuoteSupplierNotification[]
   conversationState     SupplierConversationState?
+  purchaseOrders        PurchaseOrder[]
+  priceHistoryRaw       PriceHistoryRaw[]
 
   @@unique([tenantId, phone])
   @@index([tenantId])
@@ -235,6 +239,7 @@ model Quote {
   items                 QuoteItem[]
   proposalTokens        ProposalToken[]
   supplierNotifications QuoteSupplierNotification[]
+  purchaseOrders        PurchaseOrder[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -817,6 +822,7 @@ model Site {
 
   quotes        Quote[]
   quoteRequests QuoteRequest[]
+  priceHistoryRaw PriceHistoryRaw[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -840,6 +846,8 @@ model Material {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  priceHistoryRaw PriceHistoryRaw[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -896,4 +904,115 @@ model QuoteRequest {
   @@index([requesterId])
   @@index([createdAt])
   @@map("quote_requests")
+}
+
+// =================================================================
+// CO-5-01 — Purchase Order (Ordem de Compra) + PriceHistoryRaw
+// =================================================================
+
+enum PurchaseOrderStatus {
+  DRAFT // criada, aguardando PDF
+  EMITTED // PDF gerado, fornecedor notificado
+  CANCELLED // cancelada após emissão
+}
+
+/// Ordem de Compra. Criada quando o comprador fecha a cotação. Pode ter
+/// múltiplas POs por cotação (modo split por item). Numeração humana via
+/// sequência por tenant (`number` autoincrement).
+model PurchaseOrder {
+  id              String              @id @default(uuid())
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId        String
+  /// Numeração humana POR TENANT — autoincrement para um sequence Postgres
+  /// criado na migration.
+  number          Int
+  quote           Quote               @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  quoteId         String
+  supplier        Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierId      String
+
+  totalValue      Decimal             @db.Decimal(14, 2)
+  paymentTerms    String
+  deliveryDays    Int
+  freightMode     String? // CIF | FOB
+  freightValue    Decimal?            @db.Decimal(14, 2)
+  observations    String?
+
+  status          PurchaseOrderStatus @default(DRAFT)
+  pdfUrl          String? // presigned MinIO URL, regenerada quando expira
+  pdfPath         String? // path interno no MinIO para regenerar URL
+  pdfGeneratedAt  DateTime?
+
+  // Para split: PO-pai (caso esta seja parte de um split fechamento)
+  parentPurchaseOrder   PurchaseOrder?  @relation("PurchaseOrderSplit", fields: [parentPurchaseOrderId], references: [id])
+  parentPurchaseOrderId String?
+  childPurchaseOrders   PurchaseOrder[] @relation("PurchaseOrderSplit")
+
+  // Itens incluídos nesta PO (quando split, é o subset; quando winner, todos).
+  items          PurchaseOrderItem[]
+
+  // Auditoria
+  createdById    String? // BUYER que fechou
+  approvedById   String? // APPROVER se passou por aprovação
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([quoteId])
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+/// Itens da PO. Geralmente espelha 1:1 os ProposalItems vencedores, mas
+/// armazena os valores no momento do fechamento (snapshot — preserva mesmo
+/// se a Proposal for editada/deletada).
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseOrderId String
+  // Referência ao QuoteItem original para rastreio
+  quoteItemId     String?
+  description     String
+  qty             Decimal       @db.Decimal(14, 4)
+  unit            String
+  unitPrice       Decimal       @db.Decimal(14, 2)
+  totalPrice      Decimal       @db.Decimal(14, 2)
+  spec            String?
+
+  @@index([purchaseOrderId])
+  @@map("purchase_order_items")
+}
+
+/// CO-5-09: registro raw de preços observados (vencedores E perdedores)
+/// para alimentar relatório de histórico de preços (CO-7-*).
+model PriceHistoryRaw {
+  id           String   @id @default(uuid())
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId     String
+  material     Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  materialId   String?
+  supplier     Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId   String
+  site         Site?     @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  siteId       String?
+  /// Descrição livre quando materialId é null (sem catalogação)
+  description  String
+  region       String
+  unit         String
+  unitPrice    Decimal   @db.Decimal(14, 2)
+  qty          Decimal   @db.Decimal(14, 4)
+  paymentTerms String?
+  /// true quando a proposta foi a vencedora da cotação
+  wasWinner    Boolean   @default(false)
+  /// Snapshot de quando o evento ocorreu (data de fechamento da quote)
+  observedAt   DateTime  @default(now())
+  /// Origem para rastreio
+  quoteId      String
+  proposalId   String?
+
+  @@index([tenantId, materialId, observedAt])
+  @@index([tenantId, region, observedAt])
+  @@index([supplierId])
+  @@map("price_history_raw")
 }

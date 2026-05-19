@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, FileText, Inbox, HardHat, Package, Building2, CreditCard, Shield, MessageSquare, Settings2, BarChart2, Globe2, UserCog, ClipboardList } from 'lucide-react';
+import { Home, FileText, Inbox, HardHat, Package, Building2, ScrollText, CreditCard, Shield, MessageSquare, Settings2, BarChart2, Globe2, UserCog, ClipboardList } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { LogoMark } from '../ui/logo';
@@ -10,6 +10,8 @@ const menuItems = [
   // CO-2-07: Solicitações (fila do comprador) — Sprint 2.
   { name: 'Solicitações', path: '/quote-requests', icon: Inbox, resource: 'QUOTES' },
   { name: 'Cotações', path: '/quotes', icon: FileText, resource: 'QUOTES' },
+  // CO-5-08: Ordens de Compra (Sprint 5)
+  { name: 'OCs', path: '/purchase-orders', icon: ScrollText, resource: 'PURCHASE_ORDERS' },
   // CO-1-03/07: Obras + Materiais entregues na Sprint 1.
   { name: 'Obras', path: '/sites', icon: HardHat, resource: 'SITES' },
   { name: 'Materiais', path: '/materials', icon: Package, resource: 'MATERIALS' },

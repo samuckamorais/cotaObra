@@ -5,6 +5,47 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.6.0 — Sprint 5 (Fechamento, Purchase Order & PDF)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-5-01 Schema `PurchaseOrder` + `PurchaseOrderItem` + `PriceHistoryRaw`** — PO com numeração `number` por tenant (autoincrement), status `DRAFT/EMITTED/CANCELLED`, pdfUrl/pdfPath/pdfGeneratedAt, parentPurchaseOrderId (self-ref para split). PriceHistoryRaw com `wasWinner` flag para análises de "preço de mercado". Migration `20260518000100_*`.
+- **CO-5-02 + CO-5-09 `PurchaseOrderService.closeQuote`** — orquestra fechamento em transaction atômica: cria PO(s) → snapshot de items → insere PriceHistoryRaw para TODAS as propostas (vencedores + perdedores) → marca Quote como CLOSED. Modos `winner` (1 PO com rank=1) e `split` (N POs agrupadas por supplier). RBAC: BUYER/ADMIN/SUPER_ADMIN podem fechar.
+- **CO-5-03 endpoint `POST /api/quotes/:id/close-co5`** — schema zod + retorna `{ purchaseOrderIds, totalValue, purchaseOrders[] }`. Após criar POs: enfileira PDF job + dispara notify-winner + notify-losers (fire-and-forget; falhas não bloqueiam resposta).
+- **CO-5-04 Template PDF da OC** (`purchase-order-pdf.template.ts`):
+  - PDFKit A4 com cabeçalho (nº + emissão + tenant/CNPJ), blocos OBRA + FORNECEDOR lado a lado, tabela de itens (#/Descrição/Qtd/Unid/Preço unit/Total) com zebra + spec inline, totalizadores (Subtotal/Frete CIF-FOB/TOTAL destacado), blocos de condições (Pagamento/Prazo/Observações), 2 linhas de assinatura, marca d'água "CotaObra" rotacionada, footer.
+  - Formato BR de moeda via Intl.NumberFormat.
+- **CO-5-05 Job `generate-purchase-order-pdf`** — Bull queue com 3 retries + backoff exponencial. Gera PDF → upload MinIO em `purchase-orders/{tenantId}/{poId}.pdf` → presigned URL (TTL `PDF_PRESIGN_TTL_DAYS` default 7d) → atualiza PO + marca EMITTED.
+- **CO-5-06 + CO-5-07 `PurchaseOrderNotificationsService`**:
+  - `notifyWinner`: WhatsApp com nº PO, total BR, pagamento, prazo, frete, link PDF.
+  - `notifyLosers`: posição (Nº de N) + delta% para o vencedor, **sem expor preço absoluto** (equilibra transparência e proteção comercial).
+- **CO-5-08 Frontend Purchase Orders**:
+  - `pages/PurchaseOrders.tsx` (`/purchase-orders`): cards com nº OC, status, total BR, fornecedor, obra, idade, link download PDF. Filtros por status.
+  - `pages/PurchaseOrderDetail.tsx` (`/purchase-orders/:id`): cabeçalho com download PDF + link para Cotação, cards Fornecedor + Obra, tabela completa de itens, card de condições.
+  - Hook `usePurchaseOrders` + `usePurchaseOrder` + `useCloseQuote`.
+  - Sidebar: item "OCs" (ícone ScrollText) entre Cotações e Obras.
+- **`CloseQuoteModal`** — modal de fechamento com toggle winner/split, dropdown filtrado de fornecedor por item (split), validação client-side, campo de motivo.
+- **PricingComparator** integra botão "Fechar cotação" (verde, visível apenas em SUMMARIZED) que abre o modal.
+
+### Migrations adicionadas
+
+- `20260518000100_co_5_01_purchase_order_price_history/` — 3 tabelas + 6 índices + 7 FKs + enum.
+
+### Não entregue (deferido)
+
+- **CO-5-04 manual review** — PDFs precisam revisão visual por PO + 1 engenheiro real. Não-blocker técnico, parte do DoD.
+- **Email com PDF anexado para vencedor** — `notifyWinner` só WhatsApp por ora. Email com attachment depende de `email.service.sendAttachment` que ainda não existe; PR seguinte.
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+- backend `jest tests/unit`: **656/656** ✅
+
+---
+
 ## v0.5.0 — Sprint 4 (Pricing Engine & Quadro Comparativo)
 
 **Data:** 2026-05-18

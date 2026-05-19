@@ -29,6 +29,8 @@ import { ForcedFlowGuard, RequireSuperAdmin } from './components/guards/AdminGua
 const Sites = lazy(() => import('./pages/Sites'));
 const Materials = lazy(() => import('./pages/Materials'));
 const QuoteRequests = lazy(() => import('./pages/QuoteRequests'));
+const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
+const PurchaseOrderDetail = lazy(() => import('./pages/PurchaseOrderDetail'));
 
 // Lazy load route components for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
@@ -138,6 +140,8 @@ function ProtectedLayout() {
                 <Route path="/sites" element={<Sites />} />
                 <Route path="/materials" element={<Materials />} />
                 <Route path="/quote-requests" element={<QuoteRequests />} />
+                <Route path="/purchase-orders" element={<PurchaseOrders />} />
+                <Route path="/purchase-orders/:id" element={<PurchaseOrderDetail />} />
                 <Route path="/suppliers" element={<Suppliers />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/subscriptions" element={<Subscriptions />} />
@@ -172,6 +176,8 @@ function ProtectedLayout() {
               <Route path="/sites" element={<Sites />} />
               <Route path="/materials" element={<Materials />} />
               <Route path="/quote-requests" element={<QuoteRequests />} />
+              <Route path="/purchase-orders" element={<PurchaseOrders />} />
+              <Route path="/purchase-orders/:id" element={<PurchaseOrderDetail />} />
               <Route path="/suppliers" element={<Suppliers />} />
               <Route path="/users" element={<Users />} />
               <Route path="/subscriptions" element={<Subscriptions />} />

@@ -17,6 +17,7 @@ import { SupplierController } from './modules/suppliers/supplier.controller';
 import { SiteController } from './modules/sites/site.controller';
 import { MaterialController, materialUpload } from './modules/materials/material.controller';
 import { QuoteRequestController } from './modules/quote-requests/quote-request.controller';
+import { PurchaseOrderController } from './modules/purchase-orders/purchase-order.controller';
 import { QuoteController } from './modules/quotes/quote.controller';
 import { QuotePdfController } from './modules/quotes/quote-pdf.controller';
 import { DashboardController } from './modules/dashboard/dashboard.controller';
@@ -184,6 +185,13 @@ export function createApp(): Application {
   apiRouter.get('/quotes/:id/comparative', authenticate, requireTenant, QuoteController.comparative);
   // CO-4-07 — exportação XLSX do comparativo
   apiRouter.get('/quotes/:id/export', authenticate, requireTenant, QuoteController.exportComparative);
+
+  // CO-5-03 — fechamento da cotação (cria PO)
+  apiRouter.post('/quotes/:id/close-co5', authenticate, requireTenant, PurchaseOrderController.close);
+
+  // CO-5-08 — listagem de POs
+  apiRouter.get('/purchase-orders', authenticate, requireTenant, PurchaseOrderController.list);
+  apiRouter.get('/purchase-orders/:id', authenticate, requireTenant, PurchaseOrderController.getById);
   apiRouter.put('/quotes/:id/close', authenticate, requireTenant, QuoteController.close);
   apiRouter.post('/quotes/:id/close-total', authenticate, requireTenant, QuoteController.closeWithTotalWinner);
   apiRouter.post('/quotes/:id/close-by-item', authenticate, requireTenant, QuoteController.closeWithItemWinners);

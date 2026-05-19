@@ -9,11 +9,14 @@ import {
   type ComparativeBreakdown,
 } from '../../hooks/useComparative';
 import { formatCurrency } from '../../lib/utils';
-import { Trophy, FileSpreadsheet, EyeOff, AlertCircle } from 'lucide-react';
+import { Trophy, FileSpreadsheet, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { CloseQuoteModal } from './CloseQuoteModal';
 
 interface Props {
   quoteId: string;
   onClickExport?: () => void;
+  /** Mostrar botão "Fechar cotação" (visível apenas quando SUMMARIZED) */
+  allowClose?: boolean;
 }
 
 /**
@@ -28,9 +31,10 @@ interface Props {
  *   - Coluna do vencedor (rank=1) com fundo verde.
  *   - Mobile: scroll horizontal com coluna "Item" sticky.
  */
-export function PricingComparator({ quoteId, onClickExport }: Props) {
+export function PricingComparator({ quoteId, onClickExport, allowClose }: Props) {
   const { data, isLoading, error } = useComparative(quoteId);
   const [hoverBreakdownFor, setHoverBreakdownFor] = useState<string | null>(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
 
   if (isLoading) {
     return (
@@ -67,7 +71,11 @@ export function PricingComparator({ quoteId, onClickExport }: Props) {
   return (
     <Card>
       <CardContent className="p-5 space-y-4">
-        <CompareHeader summary={summary} onClickExport={onClickExport} />
+        <CompareHeader
+          summary={summary}
+          onClickExport={onClickExport}
+          onClickClose={allowClose ? () => setShowCloseModal(true) : undefined}
+        />
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
@@ -193,6 +201,16 @@ export function PricingComparator({ quoteId, onClickExport }: Props) {
             );
           })()}
       </CardContent>
+
+      {/* CO-5-03 — modal de fechamento */}
+      {allowClose && showCloseModal && (
+        <CloseQuoteModal
+          isOpen={showCloseModal}
+          onClose={() => setShowCloseModal(false)}
+          quoteId={quoteId}
+          comparative={data}
+        />
+      )}
     </Card>
   );
 }
@@ -200,9 +218,11 @@ export function PricingComparator({ quoteId, onClickExport }: Props) {
 function CompareHeader({
   summary,
   onClickExport,
+  onClickClose,
 }: {
   summary: ComparativeData['summary'];
   onClickExport?: () => void;
+  onClickClose?: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -223,12 +243,20 @@ function CompareHeader({
           </p>
         )}
       </div>
-      {onClickExport && !summary.redacted && (
-        <Button variant="outline" size="sm" className="gap-1" onClick={onClickExport}>
-          <FileSpreadsheet className="size-4" />
-          Exportar XLSX
-        </Button>
-      )}
+      <div className="flex flex-wrap gap-2">
+        {onClickExport && !summary.redacted && (
+          <Button variant="outline" size="sm" className="gap-1" onClick={onClickExport}>
+            <FileSpreadsheet className="size-4" />
+            Exportar XLSX
+          </Button>
+        )}
+        {onClickClose && !summary.redacted && (
+          <Button size="sm" className="gap-1 bg-green-600 hover:bg-green-700" onClick={onClickClose}>
+            <CheckCircle2 className="size-4" />
+            Fechar cotação
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

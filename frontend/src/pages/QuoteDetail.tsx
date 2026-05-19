@@ -196,6 +196,7 @@ export function QuoteDetail() {
       {(quote.status === 'SUMMARIZED' || quote.status === 'CLOSED') && (
         <PricingComparator
           quoteId={quote.id}
+          allowClose={quote.status === 'SUMMARIZED'}
           onClickExport={async () => {
             try {
               const res = await api.get(`/quotes/${quote.id}/export?format=xlsx`, {
