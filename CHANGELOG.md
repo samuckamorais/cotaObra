@@ -5,6 +5,37 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v1.0.0-pilot — Sprint 9 (Hardening, Observability, E2E + Pilot prep)
+
+**Data:** 2026-05-18 → 2026-05-19
+
+### Adicionado
+
+- **CO-9-01 Sentry wrapper real** — `sentryService.init()` faz lazy require de `@sentry/node`; se instalado + `SENTRY_DSN` setado, inicializa SDK com `environment`, `release`=`GIT_SHA`, `tracesSampleRate=0.1`. Fallback grava log com prefix `[sentry]`. `captureException` agora aceita `{ tags, extra, user, level }`.
+- **errorMiddleware** — passa `user.id`, `user.tenantId`, `path`, `method`, `url`, `query` para Sentry como tags/extra/user.
+- **CO-9-02 PostHog HTTP capture** — `analyticsService.trackEvent` faz POST direto pra `POSTHOG_HOST/capture/` (zero dependência de SDK) quando `POSTHOG_API_KEY` setado. Aceita formatos novo (`{ distinctId, properties }`) e legado (objeto flat) — backward-compatible com calls de Sprints anteriores.
+- **CO-9-04 `/health` enriquecido** — retorna `commit` (GIT_SHA), `env`, `integrations: { asaas, sentry, posthog, whatsapp }` indicando quais integrações estão ativas. Útil para troubleshooting em pilots.
+- **env.ts** — `SENTRY_DSN`, `POSTHOG_API_KEY`, `POSTHOG_HOST` (default `https://app.posthog.com`), `GIT_SHA` (default `dev`), `APP_VERSION` (default `1.0.0-pilot`).
+- **E2E Playwright scaffolding** (`/e2e`) — 10 specs cobrindo: auth-login, site-crud, material-import, quote-create-dispatch, proposal-public-form, quote-comparative, close-quote-winner, approval-flow, reports-tabs, settings-erp-asaas. Fixtures shared via `fixtures.ts` (`loginAsAdmin`). `playwright.config.ts` com workers=1 + retries=2 em CI. `package.json` separado do backend/frontend para evitar instalar Chromium na build do backend.
+- **`docs/RUNBOOK.md`** — runbook operacional: arquitetura, health checks, env vars críticas, comandos comuns, 5 cenários de incidente (backend não inicia, PDF não gera, webhook ERP falhando, aprovações travadas, billing dessincronizado), limitações conhecidas, escalonamento.
+- **`docs/PILOT_CHECKLIST.md`** — checklist de 8 seções para go-live: infraestrutura, env config, integrações externas (WhatsApp/Asaas/ERP/Observability), dados iniciais, treinamento, validação técnica final, monitoria 7 dias, pendências documentadas.
+
+### Não entregue (deferido — necessita ação do cliente)
+
+- **`@sentry/node` instalado** — código está pronto via lazy require; basta `npm i @sentry/node` quando cliente quiser.
+- **E2E execução em CI** — specs scaffolded mas precisam GitHub Actions workflow + seed determinístico do banco de testes.
+- **Materials CSV seed E2E** — `e2e/fixtures/materials-sample.csv` criado mas import endpoint pode pedir header customizado dependendo do tenant.
+- **Templates HSM Meta** — `quote_invite_supplier`, `quote_reminder`, `winner_notify`, `approval_pending` precisam ser submetidos e aprovados pela Meta antes de produção real (texto livre funciona em sandbox).
+- **Backup automatizado MinIO** — `RUNBOOK.md` documenta como pendência; cron de pg_dump + sync MinIO fica para Sprint 10.
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+- e2e specs: scaffold pronto, **não rodado** (requer Playwright install + seed banco de teste)
+
+---
+
 ## v0.9.0 — Sprint 8 (ERP Webhook outbound + Billing Asaas)
 
 **Data:** 2026-05-18

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../../config/database';
 import { redis } from '../../config/redis';
+import { env } from '../../config/env';
 
 const router = Router();
 
@@ -43,11 +44,20 @@ router.get('/', async (_req: Request, res: Response) => {
 
   res.status(statusCode).json({
     status,
-    version: '1.0.0',
+    // CO-9-04 — build info para troubleshooting em pilotos
+    version: env.APP_VERSION,
+    commit: env.GIT_SHA,
+    env: env.NODE_ENV,
     uptime: process.uptime(),
     services: {
       database,
       redis: redisStatus,
+    },
+    integrations: {
+      asaas: !!process.env.ASAAS_API_KEY,
+      sentry: !!process.env.SENTRY_DSN,
+      posthog: !!process.env.POSTHOG_API_KEY,
+      whatsapp: !!process.env.WHATSAPP_PROVIDER,
     },
   });
 });

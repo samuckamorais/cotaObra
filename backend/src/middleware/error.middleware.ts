@@ -12,6 +12,16 @@ export const errorMiddleware = (
   res: Response,
   next: NextFunction
 ): void => {
-  sentryService.captureException(err, { path: req.path, method: req.method });
+  sentryService.captureException(err, {
+    tags: { path: req.path, method: req.method },
+    user: {
+      id: (req as any).user?.id,
+      tenantId: (req as any).user?.tenantId,
+    },
+    extra: {
+      url: req.originalUrl,
+      query: req.query,
+    },
+  });
   ErrorHandler.handle(err, req, res, next);
 };

@@ -141,6 +141,14 @@ const envSchema = z.object({
   // null/vazio = modo stub (sem cobrança real, mas IDs fakes persistidos).
   ASAAS_API_KEY: z.string().optional(),
   ASAAS_BASE_URL: z.string().default('https://api.asaas.com/v3'),
+
+  // CO-9-01 / CO-9-02 — Observability.
+  SENTRY_DSN: z.string().optional(),
+  POSTHOG_API_KEY: z.string().optional(),
+  POSTHOG_HOST: z.string().default('https://app.posthog.com'),
+  // Build info — definido via CI (git rev-parse HEAD) ou Docker build arg.
+  GIT_SHA: z.string().default('dev'),
+  APP_VERSION: z.string().default('1.0.0-pilot'),
 });
 
 export type Env = z.infer<typeof envSchema>;
