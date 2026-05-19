@@ -126,57 +126,138 @@ export const futureDateSchema = z.coerce
   .refine((date: Date) => date > new Date(), 'Data deve ser futura');
 
 /**
- * Parse de deadline em português
- * Aceita: "2024-03-30", "30/03/2024", "em 3 dias", "amanhã"
+ * Parse de deadline em português brasileiro.
+ *
+ * CO-S2-NEW (AUD-05): reescrito para corrigir bugs herdados do cotaAgro:
+ *  - `new Date('YYYY-MM-DD')` é UTC-midnight e em BRT (-03:00) vira o dia
+ *    anterior. Agora usamos construção local `new Date(y, m-1, d)`.
+ *  - `new Date('99/99/9999')` antes retornava Date com NaN sem o caller
+ *    perceber. Agora validamos o resultado.
+ *
+ * Aceita:
+ *  - "amanhã" / "amanha"
+ *  - "hoje" (até 23:59:59)
+ *  - "em N dias" / "daqui a N dias"
+ *  - "sexta", "segunda", … (próxima ocorrência futura)
+ *  - "fim do mês" / "fim de mes"
+ *  - ISO "YYYY-MM-DD"
+ *  - BR "DD/MM/YYYY" e "DD/MM" (ano implícito: corrente ou próximo se já passou)
+ *
+ * @param input  string crua (input do usuário)
+ * @param ref    data de referência (default: agora) — útil em testes
  */
-export const parseDeadline = (input: string): Date | null => {
-  const normalized = input.toLowerCase().trim();
+export const parseDeadline = (input: string, ref: Date = new Date()): Date | null => {
+  if (!input || typeof input !== 'string') return null;
+  const normalized = input
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, ''); // remove acentos
 
-  // "amanhã"
-  if (normalized === 'amanhã' || normalized === 'amanha') {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow;
-  }
-
-  // "em X dias"
-  const daysMatch = normalized.match(/em\s+(\d+)\s+dias?/);
-  if (daysMatch) {
-    const days = parseInt(daysMatch[1]);
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + days);
-    return futureDate;
-  }
-
-  // "daqui a X dias"
-  const daysMatch2 = normalized.match(/daqui\s+a\s+(\d+)\s+dias?/);
-  if (daysMatch2) {
-    const days = parseInt(daysMatch2[1]);
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + days);
-    return futureDate;
-  }
-
-  // "hoje" (hoje + 23:59)
+  // -------- "hoje" --------
   if (normalized === 'hoje') {
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    return today;
+    const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), 23, 59, 59, 999);
+    return d;
   }
 
-  // Formato ISO: "2024-03-30"
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    return new Date(normalized);
+  // -------- "amanha" --------
+  if (normalized === 'amanha') {
+    const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + 1, 12, 0, 0, 0);
+    return d;
   }
 
-  // Formato brasileiro: "30/03/2024"
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(normalized)) {
-    const [day, month, year] = normalized.split('/');
-    return new Date(`${year}-${month}-${day}`);
+  // -------- "em N dias" / "daqui a N dias" --------
+  const daysMatch =
+    normalized.match(/em\s+(\d+)\s+dias?/) ?? normalized.match(/daqui\s+a\s+(\d+)\s+dias?/);
+  if (daysMatch) {
+    const days = parseInt(daysMatch[1], 10);
+    if (!Number.isFinite(days) || days < 0 || days > 365) return null;
+    return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + days, 12, 0, 0, 0);
+  }
+
+  // -------- "fim do mes" --------
+  if (normalized === 'fim do mes' || normalized === 'final do mes') {
+    // último dia do mês de ref
+    const last = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 12, 0, 0, 0);
+    return last;
+  }
+
+  // -------- dia da semana ("sexta", "segunda", etc.) --------
+  const WEEKDAYS: Record<string, number> = {
+    domingo: 0,
+    segunda: 1,
+    'segunda-feira': 1,
+    terca: 2,
+    'terca-feira': 2,
+    quarta: 3,
+    'quarta-feira': 3,
+    quinta: 4,
+    'quinta-feira': 4,
+    sexta: 5,
+    'sexta-feira': 5,
+    sabado: 6,
+  };
+  const wdKey = Object.keys(WEEKDAYS).find((k) => normalized === k || normalized === k + 's');
+  if (wdKey !== undefined) {
+    const target = WEEKDAYS[wdKey];
+    const today = ref.getDay();
+    let diff = target - today;
+    if (diff <= 0) diff += 7; // se hoje é sexta e pedi "sexta", vai pra próxima
+    return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + diff, 12, 0, 0, 0);
+  }
+
+  // -------- ISO "YYYY-MM-DD" --------
+  const isoMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10);
+    const d = parseInt(isoMatch[3], 10);
+    return buildValidLocalDate(y, m, d);
+  }
+
+  // -------- BR "DD/MM/YYYY" --------
+  const brFullMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (brFullMatch) {
+    const d = parseInt(brFullMatch[1], 10);
+    const m = parseInt(brFullMatch[2], 10);
+    const y = parseInt(brFullMatch[3], 10);
+    return buildValidLocalDate(y, m, d);
+  }
+
+  // -------- BR "DD/MM" (ano implícito) --------
+  const brShortMatch = normalized.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (brShortMatch) {
+    const d = parseInt(brShortMatch[1], 10);
+    const m = parseInt(brShortMatch[2], 10);
+    const yCandidate = ref.getFullYear();
+    const candidate = buildValidLocalDate(yCandidate, m, d);
+    if (!candidate) return null;
+    // Se já passou neste ano, assume próximo ano
+    if (candidate.getTime() < ref.getTime() - 60_000) {
+      return buildValidLocalDate(yCandidate + 1, m, d);
+    }
+    return candidate;
   }
 
   return null;
 };
+
+/**
+ * Constrói Date local validando que os componentes batem.
+ * Retorna null se a data for inválida (ex: 31/02, 99/99).
+ */
+function buildValidLocalDate(year: number, month: number, day: number): Date | null {
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  if (year < 1900 || year > 2200) return null;
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  const d = new Date(year, month - 1, day, 12, 0, 0, 0);
+  // Verifica que JavaScript não "ajustou" (ex: 31/02 vira 03/03)
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+    return null;
+  }
+  return d;
+}
 
 // ===================================
 // Producer Validation

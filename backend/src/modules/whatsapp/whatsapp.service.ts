@@ -9,11 +9,14 @@ import { logger } from '../../utils/logger';
 import { openaiService } from '../../services/openai.service';
 import { prisma } from '../../config/database';
 // CO-0-06: arquivo renomeado para requester.flow.ts e classe renomeada para RequesterFSM.
-// Adaptação semântica do fluxo (perguntas de obra/material em vez de cultura) entra na Sprint 2.
+// Adaptação semântica completa do fluxo (perguntas estado a estado) virá em
+// PRs subsequentes da Sprint 2; aqui o handler novo é o RequesterIntakeService
+// que substitui a FSM legada quando o user está cadastrado em User.phone.
 import { RequesterFSM } from '../../flows/requester.flow';
 import { SupplierFSM } from '../../flows/supplier.flow';
 import { tryNormalizePhoneBR } from '../../utils/phone';
 import { transcribeAudio } from '../../services/audio-transcription.service';
+import { handleRequesterMessage } from '../../services/requester-intake.service';
 
 /**
  * Serviço principal de WhatsApp
@@ -137,7 +140,21 @@ export class WhatsAppService {
     }
 
     try {
+      // CO-2-01/2-08 — Tentar interceptar como Requester (User.phone) ANTES
+      // do path legado de Producer. Cobre o fluxo novo de Obra+Material.
+      for (const variant of phoneVariants) {
+        const intake = await handleRequesterMessage(variant, processedMessage);
+        if (intake.intercepted) {
+          for (const reply of intake.replies) {
+            await this.sendMessage({ to: from, body: reply });
+          }
+          return;
+        }
+      }
+
       // Verificar se é produtor (busca canônica + variantes legadas)
+      // CO-1-11: Producer está marcado como legacy mas continua atendendo
+      // tenants que não migraram para User+Site. Sprint 3 remove definitivamente.
       const producer = await prisma.producer.findFirst({
         where: { phone: { in: phoneVariants } },
         include: { conversationState: true },

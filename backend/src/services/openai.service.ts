@@ -202,22 +202,42 @@ Exemplo: ["Ração para gado", "Ração para aves", "Fertilizante NPK"]`;
     }
 
     try {
-      const systemPrompt = `Você é um assistente especializado em interpretar mensagens de produtores rurais brasileiros que desejam cotar insumos agrícolas.
+      // CO-2-02 — prompt adaptado para o domínio de materiais de construção.
+      // Categorias canônicas: cimento, agregados, aco, blocos, concreto, hidraulica,
+      // eletrica, gesso, revestimento, pintura, cobertura, esquadrias,
+      // impermeabilizacao, vidracaria, ferramentas, madeira, outros.
+      // Unidades canônicas: un, pç, caixa, pacote, kg, Ton, m, m², m³, m linear,
+      // litros, galão, saca, fardo, rolo, balde, milheiro.
+      const systemPrompt = `Você é um assistente especializado em interpretar mensagens de engenheiros e compradores de construtoras brasileiras que precisam cotar MATERIAIS DE CONSTRUÇÃO.
 
 Sua tarefa é analisar a mensagem e retornar um JSON com:
-- intent: tipo de intenção (nova_cotacao, ver_cotacao, cancelar, saudacao, ajuda, responder_cotacao, recusar_cotacao, desconhecido)
-- entities: entidades extraídas (product, quantity, unit, region, deadline)
-- confidence: confiança de 0 a 1
+- intent: nova_cotacao | ver_cotacao | cancelar | saudacao | ajuda | responder_cotacao | recusar_cotacao | desconhecido
+- entities: { material, quantity, unit, siteHint, deadlineHint, spec }
+  * material: nome do material (cimento CP-II, vergalhão CA-50 12.5mm, brita 1, porcelanato 60x60, etc.)
+  * quantity: número (apenas valor numérico)
+  * unit: unidade normalizada (saca, m³, m², kg, Ton, peça, milheiro, balde, rolo, etc.)
+  * siteHint: nome ou trecho do nome da obra mencionada (ex: "Aurora Torre A", "obra do centro")
+  * deadlineHint: prazo em linguagem natural ("sexta", "amanhã", "31/12", "fim do mês", "em 3 dias")
+  * spec: especificação técnica (NBR, marca aprovada, cor, granulometria) — opcional
+- confidence: 0..1
 
-Exemplos de mensagens:
-- "quero cotar 100 sacos de soja para Goiânia em 5 dias" → intent: nova_cotacao, entities: {product: "soja", quantity: "100", unit: "sacos", region: "Goiânia", deadline: "em 5 dias"}
-- "preciso de 500kg de fertilizante" → intent: nova_cotacao, entities: {product: "fertilizante", quantity: "500", unit: "kg"}
-- "oi, bom dia" → intent: saudacao, entities: {}
-- "cancelar" → intent: cancelar, entities: {}
+Exemplos:
+- "preciso de 200 sacas de cimento CP-II na obra Aurora pra sexta"
+  → intent: nova_cotacao, entities: { material: "cimento CP-II", quantity: 200, unit: "saca", siteHint: "Aurora", deadlineHint: "sexta" }
+- "30 m³ de areia média, 15 m³ de brita 1, entrega na vila nova amanhã"
+  → intent: nova_cotacao, entities: { material: "areia média; brita 1", quantity: null, unit: "m³", siteHint: "vila nova", deadlineHint: "amanhã" }
+- "500 vergalhão CA-50 12.5mm, NBR 7480, prazo 5 dias"
+  → intent: nova_cotacao, entities: { material: "vergalhão CA-50 12.5mm", quantity: 500, unit: "peça", spec: "NBR 7480", deadlineHint: "em 5 dias" }
+- "8 milheiros de tijolo cerâmico 9x19x19"
+  → intent: nova_cotacao, entities: { material: "tijolo cerâmico 9x19x19", quantity: 8, unit: "milheiro" }
+- "oi, bom dia"
+  → intent: saudacao, entities: {}
+- "cancelar"
+  → intent: cancelar, entities: {}
 
 ${context ? `Contexto da conversa: ${context}` : ''}
 
-Retorne APENAS o JSON, sem texto adicional.`;
+Retorne APENAS o JSON, sem texto adicional. Quando incerto, omita o campo.`;
 
       const response = await this.client.chat.completions.create({
         model: env.OPENAI_MODEL,
@@ -271,18 +291,46 @@ Retorne APENAS o JSON, sem texto adicional.`;
       return { intent: 'ver_cotacao', entities: {}, confidence: 0.7 };
     }
 
-    // Nova cotação (keywords de produtos agrícolas)
+    // Nova cotação (keywords de materiais de construção) — CO-2-02 fallback.
+    // Mantém alguns termos agro para retrocompatibilidade durante a transição.
     const productKeywords = [
+      // Construção (prioritários)
+      'cimento',
+      'areia',
+      'brita',
+      'vergalhão',
+      'vergalhao',
+      'aço',
+      'aco',
+      'tijolo',
+      'bloco',
+      'lajota',
+      'concreto',
+      'argamassa',
+      'cano',
+      'tubo',
+      'pvc',
+      'fio',
+      'cabo',
+      'eletroduto',
+      'gesso',
+      'drywall',
+      'porcelanato',
+      'cerâmica',
+      'ceramica',
+      'tinta',
+      'massa',
+      'telha',
+      'porta',
+      'janela',
+      'vidro',
+      'epi',
+      // Legacy agro (transição)
       'soja',
       'milho',
       'fertilizante',
       'semente',
       'defensivo',
-      'adubo',
-      'herbicida',
-      'inseticida',
-      'calcário',
-      'ureia',
     ];
 
     const hasProduct = productKeywords.some((keyword) => normalized.includes(keyword));

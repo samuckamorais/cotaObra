@@ -38,6 +38,7 @@ model Tenant {
   settings              TenantSettings?
   sites                 Site[]
   materials             Material[]
+  quoteRequests         QuoteRequest[]
 
   @@index([slug])
   @@index([active])
@@ -527,6 +528,7 @@ model User {
 
   permissions      Permission[]
   reportSchedules  ReportSchedule[]
+  quoteRequests    QuoteRequest[]
 
   @@index([email])
   @@index([tenantId])
@@ -779,7 +781,8 @@ model Site {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  quotes       Quote[]
+  quotes        Quote[]
+  quoteRequests QuoteRequest[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -810,3 +813,53 @@ model Material {
   @@map("materials")
 }
 
+
+// =================================================================
+// CO-2-06 — QuoteRequest: pré-Quote criada pelo solicitante via WhatsApp.
+// Fica em fila de revisão (PENDING_REVIEW) até o comprador promover ou
+// rejeitar. Quando promovida, vira Quote com status AWAITING_BUYER_REVIEW.
+// =================================================================
+
+enum QuoteRequestStatus {
+  PENDING_REVIEW // chegou da FSM/Form, aguarda comprador
+  PROMOTED // virou Quote (linkada via promotedQuoteId)
+  REJECTED // recusada pelo comprador (com motivo)
+  EXPIRED // sem ação em N dias (cron futuro)
+}
+
+/// Solicitação recebida do engenheiro (REQUESTER) antes de virar Quote.
+/// `items` é JSON livre porque o solicitante pode descrever materiais sem
+/// catalogá-los; o comprador mapeia para Material[] na promoção.
+model QuoteRequest {
+  id            String             @id @default(uuid())
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId      String
+  site          Site               @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  siteId        String
+  requester     User               @relation(fields: [requesterId], references: [id], onDelete: Restrict)
+  requesterId   String
+
+  // Items livres: { description, qty?, unit?, spec?, materialId? }
+  items         Json
+  deadlineAt    DateTime?
+  observation   String?
+  // Origem: 'whatsapp' (FSM), 'form' (link multi-item), 'panel' (criado direto pelo comprador)
+  source        String             @default("whatsapp")
+  rawText       String? // texto original do WhatsApp (debug + auditoria de NLU)
+
+  status        QuoteRequestStatus @default(PENDING_REVIEW)
+  rejectionReason String?
+  // Quando promovida, link para a Quote criada (FK opcional)
+  promotedQuoteId String?
+  promotedAt    DateTime?
+  reviewedById  String? // user que promoveu/rejeitou
+
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([tenantId, status])
+  @@index([siteId])
+  @@index([requesterId])
+  @@index([createdAt])
+  @@map("quote_requests")
+}

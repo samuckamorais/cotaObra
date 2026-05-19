@@ -5,6 +5,45 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.3.0 — Sprint 2 (FSM Solicitante via WhatsApp + Fila de Solicitações)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-S2-NEW Fix AUD-05 `parseDeadline`** — reescrita completa do parser de datas em PT-BR. Bug histórico do cotaAgro corrigido: `new Date('YYYY-MM-DD')` interpretava como UTC midnight, que em BRT virava o dia anterior. Agora usa construção local `new Date(y, m-1, d)`. Aceita: `amanhã/amanha`, `hoje`, `em N dias`, `daqui a N dias`, `sexta/sexta-feira` (próxima ocorrência), `fim do mês`, ISO `YYYY-MM-DD`, BR `DD/MM/YYYY` e `DD/MM` (ano implícito). Datas inválidas retornam `null`. **13 novos testes + 4 falhas pré-existentes resolvidas**.
+- **CO-2-05 `resolveRequester(phone)`** em `services/requester.service.ts` — resolve número WhatsApp para `{ user, sites[] }`. REQUESTER vê apenas obras em `siteIds`; demais roles veem todas as obras ACTIVE do tenant.
+- **CO-2-06 modelo `QuoteRequest`** — pré-Quote em fila de revisão. Campos: `tenantId`, `siteId`, `requesterId`, `items` (JSON livre), `deadlineAt`, `observation`, `source`, `rawText`, `status` (PENDING_REVIEW/PROMOTED/REJECTED/EXPIRED), `rejectionReason`, `promotedQuoteId`, `reviewedById`. Migration `20260518000050_*`.
+- **`modules/quote-requests/`** backend: service + controller + 5 endpoints (list/pending-count/get/promote/reject). Promote cria Quote em transação. RBAC: BUYER/ADMIN promotem; REQUESTER read-only.
+- **CO-2-01 (mínimo) + CO-2-08 `RequesterIntakeService`** — substitui FSM legada do Producer para users em `User.phone`. Estados em Redis (TTL 30min): IDLE → AWAITING_SITE_SELECTION → AWAITING_TEXT → SUBMITTED. Parsing inline `quickParseRequest` extrai itens via regex + `normalizeUnit` + `parseDeadline`. Múltiplos itens por vírgula/`e`/`;`/`+`. Comandos: cancelar/oi/ajuda. Confirmação numerada ao usuário pós-SUBMITTED. Integrado em `whatsapp.service.ts` ANTES do path legado de Producer.
+- **CO-2-02 NLU prompt construção** — `openai.service.ts.interpretMessage` reescrito para domínio de construção. Schema: `{ material, quantity, unit, siteHint, deadlineHint, spec }`. 5 few-shot examples (cimento CP-II, areia/brita, vergalhão NBR, milheiro tijolo). Fallback regex com keywords de construção; termos agro mantidos durante transição.
+- **CO-2-07 Frontend Fila de Solicitações**:
+  - `pages/QuoteRequests.tsx` (`/quote-requests`): cards com obra/solicitante/prazo/idade, itens preview, filtros por status, paginação.
+  - `components/quote-requests/QuoteRequestReviewModal.tsx`: editor com itens editáveis, prazo, região, frete CIF/FOB, condição pagamento, scope de fornecedores, expiração. Modo recusa com motivo.
+  - Hook `useQuoteRequests` (5 queries/mutations).
+  - Badge âmbar no Sidebar (`useSidebarBadges.quoteRequestsPending`, polling 60s).
+- **CO-2-10 Audio path** — confirmado funcional. Whisper transcreve áudios e o texto passa pelo novo intake.
+- **CO-2-11 Logs estruturados FSM** — `logTransition` emite `fsm.requester.transition` com `from/to/userId/tenantId/siteId` nas 4 transições principais. Pronto para agregação em PostHog/Sentry.
+
+### Migrations adicionadas
+
+- `20260518000050_co_2_06_quote_request/` — cria enum `QuoteRequestStatus` + tabela + 4 índices + 3 FKs.
+
+### Não entregue (escopo Sprint 2 para PRs subsequentes)
+
+- **CO-2-01 full** — FSM com estados `AWAITING_MATERIAL/QUANTITY/UNIT/SPEC/DEADLINE/OBSERVATION/CONFIRMATION` separados. O intake atual usa **smart-fill default** (extrai tudo da primeira frase). Funciona bem com mensagem completa, mas precisa de estados granulares para o caso "preciso de cimento" (sem qty).
+- **CO-2-03 Smart-fill formal** — intake já consome NLU implicitamente via regex; integração formal com `smart-fill.service.ts` + GPT-4o é PR adicional.
+- **CO-2-04 Multi-item link web** — intake aceita multi-item por separador; tela `QuoteRequestForm.tsx` pública via token é PR adicional.
+- **CO-2-09 Timeout/abandono** — job `detect-abandoned-quotes` legacy continua focado em `ConversationState`; adaptação para `RequesterIntake` Redis state é PR adicional.
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+- backend `jest tests/unit`: **620/620 testes passam** ✅ (subiu de 603 — AUD-05 fix resolve 4 falhas pré-existentes + 13 novos testes)
+
+---
+
 ## v0.2.0 — Sprint 1 (Fundação de domínio: Obra & Material)
 
 **Data:** 2026-05-18

@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, FileText, HardHat, Package, Building2, CreditCard, Shield, MessageSquare, Settings2, BarChart2, Globe2, UserCog, ClipboardList } from 'lucide-react';
+import { Home, FileText, Inbox, HardHat, Package, Building2, CreditCard, Shield, MessageSquare, Settings2, BarChart2, Globe2, UserCog, ClipboardList } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { LogoMark } from '../ui/logo';
@@ -7,6 +7,8 @@ import { useSidebarBadges } from '../../hooks/useSidebarBadges';
 
 const menuItems = [
   { name: 'Dashboard', path: '/dashboard', icon: Home, resource: 'DASHBOARD' },
+  // CO-2-07: Solicitações (fila do comprador) — Sprint 2.
+  { name: 'Solicitações', path: '/quote-requests', icon: Inbox, resource: 'QUOTES' },
   { name: 'Cotações', path: '/quotes', icon: FileText, resource: 'QUOTES' },
   // CO-1-03/07: Obras + Materiais entregues na Sprint 1.
   { name: 'Obras', path: '/sites', icon: HardHat, resource: 'SITES' },
@@ -75,6 +77,12 @@ export function Sidebar() {
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1">{item.name}</span>
+              {/* CO-2-07: badge de solicitações pendentes */}
+              {item.path === '/quote-requests' && badges.quoteRequestsPending && (
+                <span className="ml-auto bg-amber-500 text-white text-[10px] font-medium rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                  {badges.quoteRequestsPending}
+                </span>
+              )}
               {/* Badge numérico para Cotações */}
               {item.path === '/quotes' && badges.quotes && (
                 <span className="ml-auto bg-primary text-primary-foreground text-[10px] font-medium rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">

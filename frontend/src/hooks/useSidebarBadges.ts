@@ -4,6 +4,8 @@ import { api } from '../api/client';
 interface SidebarBadges {
   quotes: number | null;
   whatsapp: 'ok' | 'error' | null;
+  // CO-2-07: contagem de solicitações pendentes (fila do comprador)
+  quoteRequestsPending: number | null;
 }
 
 /**
@@ -39,6 +41,23 @@ export function useSidebarBadges(): SidebarBadges {
     refetchInterval: 30000,
   });
 
+  // CO-2-07: contagem de solicitações pendentes
+  const { data: pendingData } = useQuery({
+    queryKey: ['sidebar-quote-requests-pending'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get<{ success: boolean; data: { count: number } }>(
+          '/quote-requests/pending-count',
+        );
+        return data.data.count;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
   const summarizedCount = quotesData?.collectingQuotes || 0;
   const whatsappStatus = whatsappData?.isConnected === true
     ? 'ok'
@@ -49,5 +68,6 @@ export function useSidebarBadges(): SidebarBadges {
   return {
     quotes: summarizedCount > 0 ? summarizedCount : null,
     whatsapp: whatsappStatus,
+    quoteRequestsPending: pendingData && pendingData > 0 ? pendingData : null,
   };
 }

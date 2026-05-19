@@ -28,6 +28,7 @@ import { ForcedFlowGuard, RequireSuperAdmin } from './components/guards/AdminGua
 // CO-1-07: Materials.tsx (catálogo) com import CSV.
 const Sites = lazy(() => import('./pages/Sites'));
 const Materials = lazy(() => import('./pages/Materials'));
+const QuoteRequests = lazy(() => import('./pages/QuoteRequests'));
 
 // Lazy load route components for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
@@ -133,9 +134,10 @@ function ProtectedLayout() {
                 <Route path="/quotes" element={<Quotes />} />
                 <Route path="/quotes/:id" element={<QuoteDetail />} />
                 <Route path="/quotes/:id/resultados" element={<QuoteResults />} />
-                {/* CO-1-03/07: Sites e Materials CRUDs entregues na Sprint 1. */}
+                {/* CO-1-03/07 Sprint 1, CO-2-07 Sprint 2 */}
                 <Route path="/sites" element={<Sites />} />
                 <Route path="/materials" element={<Materials />} />
+                <Route path="/quote-requests" element={<QuoteRequests />} />
                 <Route path="/suppliers" element={<Suppliers />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/subscriptions" element={<Subscriptions />} />
@@ -169,6 +171,7 @@ function ProtectedLayout() {
               <Route path="/quotes/:id" element={<QuoteDetail />} />
               <Route path="/sites" element={<Sites />} />
               <Route path="/materials" element={<Materials />} />
+              <Route path="/quote-requests" element={<QuoteRequests />} />
               <Route path="/suppliers" element={<Suppliers />} />
               <Route path="/users" element={<Users />} />
               <Route path="/subscriptions" element={<Subscriptions />} />

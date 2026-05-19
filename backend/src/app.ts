@@ -16,6 +16,7 @@ import { ProducerController } from './modules/producers/producer.controller';
 import { SupplierController } from './modules/suppliers/supplier.controller';
 import { SiteController } from './modules/sites/site.controller';
 import { MaterialController, materialUpload } from './modules/materials/material.controller';
+import { QuoteRequestController } from './modules/quote-requests/quote-request.controller';
 import { QuoteController } from './modules/quotes/quote.controller';
 import { QuotePdfController } from './modules/quotes/quote-pdf.controller';
 import { DashboardController } from './modules/dashboard/dashboard.controller';
@@ -157,6 +158,13 @@ export function createApp(): Application {
     materialUpload.single('file'),
     MaterialController.importCsv,
   );
+
+  // CO-2-06 — Quote Requests (fila do comprador)
+  apiRouter.get('/quote-requests/pending-count', authenticate, requireTenant, QuoteRequestController.pendingCount);
+  apiRouter.get('/quote-requests', authenticate, requireTenant, QuoteRequestController.list);
+  apiRouter.get('/quote-requests/:id', authenticate, requireTenant, QuoteRequestController.getById);
+  apiRouter.post('/quote-requests/:id/promote', authenticate, requireTenant, QuoteRequestController.promote);
+  apiRouter.post('/quote-requests/:id/reject', authenticate, requireTenant, QuoteRequestController.reject);
 
   // Quote routes (protected + tenant isolation)
   apiRouter.get('/quotes/stats', authenticate, requireTenant, QuoteController.getStats);
