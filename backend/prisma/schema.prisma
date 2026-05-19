@@ -298,6 +298,10 @@ model ProposalItem {
   quoteItemId String
   unitPrice   Float
   totalPrice  Float
+  // CO-3-04: fornecedor pode marcar item como indisponível (ainda assim
+  // envia a proposta com os itens que tem). Pricing engine (Sprint 4) ignora
+  // itens não-disponíveis no `correctedTotal`.
+  available   Boolean   @default(true)
 
   @@unique([proposalId, quoteItemId])
   @@index([proposalId])
@@ -340,8 +344,17 @@ model QuoteSupplierNotification {
   respondedAt    DateTime?
   responseType   String?
 
+  // CO-3-07 — delivery/read receipts via webhook do provider.
+  // Valores: SENT (envio enfileirado), DELIVERED (entrega ao device),
+  // READ (mensagem lida), FAILED (erro no envio).
+  deliveryStatus String?    @default("SENT")
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  errorMsg       String?
+
   @@unique([quoteId, supplierId])
   @@index([quoteId])
+  @@index([deliveryStatus])
   @@map("quote_supplier_notifications")
 }
 

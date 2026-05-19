@@ -16,6 +16,7 @@ import {
   FileText,
   MessageCircle,
 } from 'lucide-react';
+import { SupplierStatusGrid } from '../components/quotes/SupplierStatusGrid';
 
 const statusColors: Record<string, 'success' | 'warning' | 'error' | 'default' | 'info'> = {
   PENDING: 'default',
@@ -183,6 +184,11 @@ export function QuoteDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* CO-3-09 — Quadro de status dos fornecedores convidados */}
+      {(quote.status === 'COLLECTING' || quote.status === 'SUMMARIZED') && (
+        <SupplierStatusGrid quoteId={quote.id} />
+      )}
 
       {/* Propostas */}
       <Card>

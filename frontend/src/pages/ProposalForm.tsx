@@ -97,16 +97,21 @@ export function ProposalForm() {
     e.preventDefault();
     if (!formData || !token) return;
 
-    const items = formData.quote.items
-      .filter((it) => !skipped[it.id])
-      .map((it) => ({
+    // CO-3-04: items pulados (skipped) viram available=false; o resto vai
+    // como available=true. Pricing engine (Sprint 4) ignora indisponíveis.
+    const items = formData.quote.items.map((it) => {
+      const isAvailable = !skipped[it.id];
+      const rawPrice = parseFloat(prices[it.id]?.replace(',', '.') || '0');
+      return {
         quoteItemId: it.id,
-        unitPrice: parseFloat(prices[it.id]?.replace(',', '.') || '0'),
-      }))
-      .filter((it) => it.unitPrice > 0);
+        unitPrice: isAvailable ? rawPrice : 0,
+        available: isAvailable,
+      };
+    });
 
-    if (items.length === 0) {
-      setSubmitError('Informe o preço de ao menos um item.');
+    const submittable = items.filter((it) => it.available && it.unitPrice > 0);
+    if (submittable.length === 0) {
+      setSubmitError('Informe o preço de ao menos um item disponível.');
       return;
     }
 
@@ -286,15 +291,43 @@ export function ProposalForm() {
             </div>
 
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Condição de pagamento *</label>
-              <input
-                type="text"
+              <label className="block text-xs text-gray-500 mb-1">
+                Condição de pagamento *
+              </label>
+              {/* CO-3-04 — dropdown com condições típicas de construção + opção "Outro" */}
+              <select
                 required
-                value={paymentTerms}
-                onChange={(e) => setPaymentTerms(e.target.value)}
+                value={
+                  paymentTerms === '' ||
+                  ['à vista', '28dd', '28/56dd', '30/60/90dd'].includes(paymentTerms)
+                    ? paymentTerms
+                    : '__custom__'
+                }
+                onChange={(e) => {
+                  if (e.target.value === '__custom__') {
+                    setPaymentTerms('Outro: ');
+                  } else {
+                    setPaymentTerms(e.target.value);
+                  }
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="Ex: 30 dias, à vista, boleto"
-              />
+              >
+                <option value="">Selecione…</option>
+                <option value="à vista">À vista (5% desc. comum)</option>
+                <option value="28dd">28 dias</option>
+                <option value="28/56dd">28/56 dias</option>
+                <option value="30/60/90dd">30/60/90 dias</option>
+                <option value="__custom__">Outro (digite abaixo)</option>
+              </select>
+              {paymentTerms.startsWith('Outro: ') && (
+                <input
+                  type="text"
+                  value={paymentTerms.replace(/^Outro:\s?/, '')}
+                  onChange={(e) => setPaymentTerms('Outro: ' + e.target.value)}
+                  className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Ex: 45 dias, parcelado em 4x, antecipado 20%…"
+                />
+              )}
             </div>
 
             <div>

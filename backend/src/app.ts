@@ -113,6 +113,8 @@ export function createApp(): Application {
   // WhatsApp webhook routes (public)
   apiRouter.get('/whatsapp/webhook', WhatsAppController.verifyWebhook);
   apiRouter.post('/whatsapp/webhook', rateLimitByPhone, WhatsAppController.handleWebhook);
+  // CO-3-07 — webhook de status (delivery/read receipts)
+  apiRouter.post('/whatsapp/status-callback', WhatsAppController.statusCallback);
 
   // Dashboard routes (protected + tenant isolation)
   apiRouter.get('/dashboard', authenticate, requireTenant, DashboardController.getDashboard);
@@ -174,6 +176,10 @@ export function createApp(): Application {
   apiRouter.get('/quotes/:id/results', authenticate, requireTenant, QuoteController.getResults);
   apiRouter.post('/quotes', authenticate, requireTenant, QuoteController.create);
   apiRouter.post('/quotes/:id/dispatch', authenticate, requireTenant, QuoteController.dispatch);
+  // CO-3-01 — sugestão automática de fornecedores ranqueados
+  apiRouter.get('/quotes/:id/suggested-suppliers', authenticate, requireTenant, QuoteController.suggestedSuppliers);
+  // CO-3-09 — quadro de status dos fornecedores convidados
+  apiRouter.get('/quotes/:id/supplier-status', authenticate, requireTenant, QuoteController.supplierStatus);
   apiRouter.put('/quotes/:id/close', authenticate, requireTenant, QuoteController.close);
   apiRouter.post('/quotes/:id/close-total', authenticate, requireTenant, QuoteController.closeWithTotalWinner);
   apiRouter.post('/quotes/:id/close-by-item', authenticate, requireTenant, QuoteController.closeWithItemWinners);

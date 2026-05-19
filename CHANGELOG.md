@@ -5,6 +5,57 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.4.0 — Sprint 3 (Dispatch & FSM Fornecedor)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-3-01 `SupplierSuggestionService`** — algoritmo de ranking de fornecedores para uma cotação:
+  - Categoria (50pts se cobre todas / 20pts parcial) + região (30pts) + rating × 3 (até 15pts) + velocidade de resposta nas últimas 5 propostas (até 5pts).
+  - Endpoint `GET /api/quotes/:id/suggested-suppliers` retorna top 8.
+- **CO-3-03 supplier.flow paymentTerms construção** — `Messages.ASK_PAYMENT` agora apresenta menu numérico (1) à vista (5% desc) 2) 28dd 3) 28/56dd 4) 30/60/90dd 5) Outro. Novo `Messages.RESOLVE_PAYMENT_CHOICE` normaliza escolha numérica para label canônico; texto livre como fallback. `handleAwaitingPayment` atualizado.
+- **CO-3-04 ProposalForm adaptado**:
+  - Backend: `ProposalItem.available Boolean @default(true)`. Migration `20260518000070_*`. Pricing engine (Sprint 4) ignora itens com `available=false`.
+  - Frontend: dropdown de payment terms com 4 opções fixas + "Outro" texto livre. Itens pulados (`skipped`) viram `available=false` no payload — antes eram filtrados, agora informados explicitamente.
+- **CO-3-05 `PriceSanityService`** — sanity check de outlier:
+  - Compara preço unitário contra mediana das últimas 30 propostas do mesmo material+região+unidade.
+  - Outlier se ratio > 3x para cima ou < 1/3 para baixo (3x mais barato).
+  - `formatConfirmation` gera mensagem "⚠️ Preço de R$ X está acima/abaixo da mediana (~R$ Y)" para FSM pedir confirmação.
+  - Default não-outlier com menos de 5 amostras (sem baseline confiável).
+- **CO-3-06 followup-suppliers** — `buildFirstFollowUp`/`buildSecondFollowUp` reescritos com "construtora" no lugar de "produtor"; assinatura atualizada para "Cotação de materiais de construção".
+- **CO-3-07 Webhook de delivery/read receipts**:
+  - Schema: `QuoteSupplierNotification` ganha `deliveryStatus` (SENT/DELIVERED/READ/FAILED), `deliveredAt`, `readAt`, `errorMsg`. Migration `20260518000060_*`.
+  - Novo service `NotificationStatusService.applyEvent({ phone, event, errorMsg })`.
+  - Endpoint público `POST /api/whatsapp/status-callback` aceita formato canônico `{ phone, event }` OU formato Twilio (`To`, `MessageStatus`). Provider mapping inclui `undelivered → failed`.
+- **CO-3-09 Quadro de status no QuoteDetail**:
+  - Service `SupplierStatusService.listForQuote` retorna `items[]` + `summary` (total/responded/delivered/read/failed).
+  - Endpoint `GET /api/quotes/:id/supplier-status`.
+  - Hook `useSupplierStatus` com polling 15s.
+  - Componente `SupplierStatusGrid` renderiza fornecedores com badge colorido (PENDING/SENT/DELIVERED/READ/RESPONDED/FAILED) + idade da notificação + contador de follow-ups + erro inline. Mostra "3/5 responderam" no topo.
+  - Integrado no `QuoteDetail.tsx` entre o card de informações e a lista de propostas (visível apenas se quote está em COLLECTING/SUMMARIZED).
+- **CO-3-11 `SupplierFunnelService`** — emite 4 eventos estruturados (`supplier.notified`, `supplier.opened_link`, `supplier.started_proposal`, `supplier.submitted_proposal`) via logger. Ready para swap por PostHog `captureEvent` quando SDK for adicionado.
+
+### Migrations adicionadas
+
+- `20260518000060_co_3_07_notification_delivery/` — campos delivery em QuoteSupplierNotification + índice.
+- `20260518000070_co_3_04_proposal_item_available/` — `ProposalItem.available` default true.
+
+### Não entregue (PRs subsequentes Sprint 3)
+
+- **CO-3-02 dispatch-quote completo** — o job já existe (herdado do cotaAgro) e foi adaptado em Sprint 0/1; a integração com `cotacao_nova` template HSM aguarda CO-3-08 (Meta approval).
+- **CO-3-08 Templates HSM** — processo manual no Business Manager da Meta (externo a esta sessão; aguarda número WhatsApp dedicado + warming).
+- **CO-3-10 anti-loop / rate-limit** — já existem do cotaAgro (`anti-loop.service.ts`, `status-rate-limit.service.ts`); não precisaram de mudanças.
+- **Integração funnel events nos call sites** — `SupplierFunnelService.notified` ainda não está cabeado em `dispatch-quote.job.ts`. Adição trivial em PR seguinte.
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+- backend `jest tests/unit`: **620/620** ✅
+
+---
+
 ## v0.3.0 — Sprint 2 (FSM Solicitante via WhatsApp + Fila de Solicitações)
 
 **Data:** 2026-05-18

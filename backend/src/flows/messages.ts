@@ -416,7 +416,31 @@ _cancelar_ — voltar ao menu`,
 
   ASK_DELIVERY: `Qual o *prazo de entrega* em dias?\n\nEx: 5`,
 
-  ASK_PAYMENT: `Qual a *condição de pagamento*?\n\nEx: à vista, 30 dias, 50% antecipado`,
+  // CO-3-03 — condições típicas de construção (1) à vista 2) 28dd 3) 28/56dd 4) 30/60/90dd 5) outro.
+  ASK_PAYMENT: `Qual a *condição de pagamento*?
+
+1 — *À vista* (5% desc. comum)
+2 — *28 dias*
+3 — *28/56 dias*
+4 — *30/60/90 dias*
+5 — *Outro* (digite no formato livre)`,
+
+  /**
+   * CO-3-03 — Resolve a escolha numérica do fornecedor em um label canônico.
+   * Aceita também texto livre como fallback.
+   */
+  RESOLVE_PAYMENT_CHOICE: (input: string): string | null => {
+    const v = input.trim();
+    if (v === '1') return 'à vista';
+    if (v === '2') return '28dd';
+    if (v === '3') return '28/56dd';
+    if (v === '4') return '30/60/90dd';
+    // 5 ou texto livre → próximo passo deve perguntar de novo OU usar como livre
+    if (v === '5') return null; // sinaliza que precisa de texto livre
+    // Fallback: aceita texto livre direto (>= 3 chars)
+    if (v.length >= 3) return v;
+    return null;
+  },
 
   ASK_SUPPLIER_OBS: `Alguma observação sobre sua proposta?\n\nSe não tiver, responda *não*.`,
 

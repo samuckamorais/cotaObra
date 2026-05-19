@@ -6,6 +6,7 @@ import { TwilioProvider } from './providers/twilio.provider';
 import { ErrorHandler } from '../../utils/error-handler';
 import { logger } from '../../utils/logger';
 import { env } from '../../config/env';
+import { NotificationStatusService } from '../../services/notification-status.service';
 
 // Algoritmo canônico Twilio: HMAC-SHA1(url + keys.sort().reduce(k+v))
 // usado APENAS para log de diagnóstico quando validateRequest retorna false.
@@ -158,4 +159,51 @@ export class WhatsAppController {
       .type('text/xml')
       .send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
   }
+
+  /**
+   * POST /api/whatsapp/status-callback — CO-3-07
+   *
+   * Endpoint genérico (provider-agnostic) que recebe eventos de delivery/read
+   * receipts. O caller envia:
+   *   { phone, event: 'sent'|'delivered'|'read'|'failed', errorMsg?, timestamp? }
+   *
+   * Twilio: webhook nativo bate aqui se configurado em "Status callback URL".
+   * Evolution: handler local na app pode chamar este endpoint para uniformizar.
+   *
+   * Verificação de assinatura: feita upstream pelos middlewares específicos
+   * de cada provider; este endpoint só consome o payload normalizado.
+   */
+  static statusCallback = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      // Aceita formato canônico { phone, event } OU formato Twilio (To, MessageStatus)
+      const body = req.body ?? {};
+      const phone = (body.phone ?? body.To ?? '').toString();
+      const eventRaw = (body.event ?? body.MessageStatus ?? '').toString().toLowerCase();
+      const errorMsg = (body.errorMsg ?? body.ErrorMessage ?? body.ErrorCode)?.toString();
+
+      // Mapeia status do Twilio para o nosso vocabulário canônico
+      const map: Record<string, 'sent' | 'delivered' | 'read' | 'failed'> = {
+        sent: 'sent',
+        delivered: 'delivered',
+        read: 'read',
+        failed: 'failed',
+        undelivered: 'failed',
+      };
+      const event = map[eventRaw];
+
+      if (!phone || !event) {
+        logger.warn('whatsapp.status_callback.invalid_payload', { body });
+        res.status(400).json({ success: false, error: { code: 'INVALID_PAYLOAD' } });
+        return;
+      }
+
+      const applied = await NotificationStatusService.applyEvent({
+        phone,
+        event,
+        errorMsg,
+      });
+
+      res.status(200).json({ success: true, applied });
+    },
+  );
 }

@@ -270,7 +270,10 @@ export class SupplierFSM extends FSMEngine<SupplierState> {
   }
 
   /**
-   * Estado SUPPLIER_AWAITING_PAYMENT - Aguardando condição de pagamento
+   * Estado SUPPLIER_AWAITING_PAYMENT - Aguardando condição de pagamento.
+   *
+   * CO-3-03 — Aceita escolha numérica 1-4 do menu de construção
+   * (à vista / 28dd / 28/56dd / 30/60/90dd) ou texto livre como fallback.
    */
   private async handleAwaitingPayment(
     supplierId: string,
@@ -278,17 +281,18 @@ export class SupplierFSM extends FSMEngine<SupplierState> {
     message: string,
     context: ConversationContext
   ): Promise<void> {
-    const paymentTerms = message.trim();
+    const resolved = Messages.RESOLVE_PAYMENT_CHOICE(message);
 
-    if (paymentTerms.length < 3) {
+    if (!resolved) {
+      // Veio "5" (Outro) ou input curto demais — pede texto livre.
       await whatsappService.sendMessage({
         to: phone,
-        body: 'Condição de pagamento muito curta. Digite pelo menos 3 caracteres.',
+        body: 'Digite a condição de pagamento em texto livre (ex: 45 dias, à vista com 5% desc, parcelado em 4x).',
       });
       return;
     }
 
-    context.paymentTerms = paymentTerms;
+    context.paymentTerms = resolved;
 
     await whatsappService.sendMessage({
       to: phone,

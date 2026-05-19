@@ -3,6 +3,8 @@ import { QuoteService } from './quote.service';
 import { ErrorHandler, createError } from '../../utils/error-handler';
 import { createQuoteSchema, paginationSchema } from '../../utils/validators';
 import { QuoteResultsService } from '../../services/quote-results.service';
+import { SupplierSuggestionService } from '../../services/supplier-suggestion.service';
+import { SupplierStatusService } from '../../services/supplier-status.service';
 import { z } from 'zod';
 
 export class QuoteController {
@@ -148,6 +150,34 @@ export class QuoteController {
       data: results,
     });
   });
+
+  /**
+   * GET /api/quotes/:id/suggested-suppliers
+   * CO-3-01 — Sugere até 8 fornecedores ranqueados (categoria, região,
+   * rating, velocidade) para esta cotação.
+   */
+  static suggestedSuppliers = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      const { id } = req.params;
+      const tenantId = (req as any).user?.tenantId!;
+      const suggestions = await SupplierSuggestionService.suggestForQuote(tenantId, id);
+      res.json({ success: true, data: suggestions });
+    },
+  );
+
+  /**
+   * GET /api/quotes/:id/supplier-status
+   * CO-3-09 — Lista fornecedores convidados + status agregado (SENT/DELIVERED/
+   * READ/RESPONDED/FAILED) para o quadro de status do QuoteDetail.
+   */
+  static supplierStatus = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      const { id } = req.params;
+      const tenantId = (req as any).user?.tenantId!;
+      const data = await SupplierStatusService.listForQuote(tenantId, id);
+      res.json({ success: true, data });
+    },
+  );
 
   /**
    * POST /api/quotes/:id/close-total

@@ -8,6 +8,9 @@ const MAX_FOLLOWUPS = 2;
 /**
  * Gera mensagem do 1o lembrete (tom amigável, 24h sem resposta).
  */
+/**
+ * CO-3-06 — texto adaptado para construção. "produtor" → "construtora".
+ */
 export function buildFirstFollowUp(data: {
   supplierName: string;
   producerName: string;
@@ -18,11 +21,11 @@ export function buildFirstFollowUp(data: {
 }): string {
   return (
     `Olá ${data.supplierName}! Tudo bem?\n\n` +
-    `O produtor *${data.producerName}* está aguardando sua cotação para:\n` +
+    `A construtora *${data.producerName}* está aguardando sua cotação para:\n` +
     `*${data.product}* — ${data.quantity} ${data.unit}\n\n` +
     `A cotação está aberta até *${data.deadline}*.\n` +
     `Para enviar sua proposta, responda com o preço por ${data.unit}.\n\n` +
-    `_CotaObra — Plataforma de Cotações Agrícolas_`
+    `_CotaObra — Cotação de materiais de construção_`
   );
 }
 
@@ -38,7 +41,7 @@ export function buildSecondFollowUp(data: {
 }): string {
   return (
     `Olá ${data.supplierName}! Último lembrete.\n\n` +
-    `A cotação de *${data.product}* do produtor *${data.producerName}*\n` +
+    `A cotação de *${data.product}* da construtora *${data.producerName}*\n` +
     `encerra em breve (*${data.deadline}*).\n\n` +
     `Se ainda tiver interesse, responda agora com seu preço por ${data.unit}.\n` +
     `Após o prazo, a cotação será encerrada automaticamente.\n\n` +
