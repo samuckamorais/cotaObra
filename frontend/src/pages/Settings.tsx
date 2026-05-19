@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings2, Clock, CalendarDays, Users, Package, Save, CheckCircle } from 'lucide-react';
+import { Settings2, Clock, CalendarDays, Users, Package, Save, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useSettings, useUpdateSettings, ProducerSettings } from '../hooks/useSettings';
 import { SkeletonSettings } from '../components/ui/skeleton';
 import { TwoFactorSection } from '../components/settings/TwoFactorSection';
@@ -22,6 +22,7 @@ export function SettingsPage() {
     maxItemsPerQuote: 10,
     winnerNotificationType: 'NONE',
     quoteExpiryHours: 2,
+    approvalThreshold: null,
   });
 
   const [saved, setSaved] = useState(false);
@@ -42,7 +43,7 @@ export function SettingsPage() {
     updateSettings(form);
   };
 
-  const field = (key: keyof ProducerSettings, value: number | string) =>
+  const field = (key: keyof ProducerSettings, value: number | string | null) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
   if (isLoading) {
@@ -184,6 +185,47 @@ export function SettingsPage() {
                 className="w-24 px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
               <span className="text-sm text-muted-foreground">horas (máx. 168h = 7 dias)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* CO-6-05: Bloco Aprovação hierárquica */}
+        <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+          <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+            Aprovação hierárquica
+          </h2>
+
+          <div className="space-y-1.5">
+            <label className="text-sm text-foreground flex items-center gap-2">
+              Teto de aprovação automática
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Cotações com valor total acima deste valor exigirão aprovação manual de um diretor (role APPROVER ou ADMIN) antes de gerar Ordem de Compra. Deixe em branco para desativar.
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">R$</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="ex: 50000.00"
+                value={form.approvalThreshold ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  field('approvalThreshold', v === '' ? null : parseFloat(v));
+                }}
+                className="w-40 px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              {form.approvalThreshold !== null && (
+                <button
+                  type="button"
+                  onClick={() => field('approvalThreshold', null)}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  desativar
+                </button>
+              )}
             </div>
           </div>
         </div>

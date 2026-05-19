@@ -1,5 +1,8 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { SupplierScope } from '@prisma/client';
+
+const { Decimal } = Prisma;
 
 export type WinnerNotificationType = 'SELECTED' | 'PRODUCER_WILL_CONTACT' | 'NONE';
 
@@ -10,9 +13,11 @@ export interface TenantSettingsData {
   maxItemsPerQuote: number;
   winnerNotificationType: WinnerNotificationType;
   quoteExpiryHours: number;
+  /** CO-6-05: teto acima do qual fechamentos exigem aprovação. null = sem teto. */
+  approvalThreshold: number | null;
 }
 
-const DEFAULTS: TenantSettingsData = {
+const DEFAULTS: Omit<TenantSettingsData, 'approvalThreshold'> = {
   proposalLinkExpiryHours: 24,
   quoteDeadlineDays: 3,
   // 'MINE' enquanto ENABLE_NETWORK_SUPPLIERS=false (lançamento sem rede ativa).
@@ -45,6 +50,7 @@ export class TenantSettingsService {
       winnerNotificationType:
         (settings.winnerNotificationType as WinnerNotificationType) ?? 'NONE',
       quoteExpiryHours: settings.quoteExpiryHours ?? 2,
+      approvalThreshold: settings.approvalThreshold ? Number(settings.approvalThreshold) : null,
     };
   }
 
@@ -55,10 +61,27 @@ export class TenantSettingsService {
     tenantId: string,
     data: Partial<TenantSettingsData>,
   ): Promise<TenantSettingsData> {
+    const { approvalThreshold, ...rest } = data;
+    const toWrite: Prisma.TenantSettingsUpdateInput = { ...rest };
+    if (approvalThreshold !== undefined) {
+      toWrite.approvalThreshold =
+        approvalThreshold === null ? null : new Decimal(approvalThreshold);
+    }
+
     const settings = await prisma.tenantSettings.upsert({
       where: { tenantId },
-      create: { tenantId, ...DEFAULTS, ...data },
-      update: data,
+      create: {
+        tenantId,
+        ...DEFAULTS,
+        ...rest,
+        ...(approvalThreshold !== undefined
+          ? {
+              approvalThreshold:
+                approvalThreshold === null ? null : new Decimal(approvalThreshold),
+            }
+          : {}),
+      },
+      update: toWrite,
     });
 
     return {
@@ -69,6 +92,7 @@ export class TenantSettingsService {
       winnerNotificationType:
         (settings.winnerNotificationType as WinnerNotificationType) ?? 'NONE',
       quoteExpiryHours: settings.quoteExpiryHours ?? 2,
+      approvalThreshold: settings.approvalThreshold ? Number(settings.approvalThreshold) : null,
     };
   }
 }

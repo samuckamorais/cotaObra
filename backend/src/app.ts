@@ -18,6 +18,7 @@ import { SiteController } from './modules/sites/site.controller';
 import { MaterialController, materialUpload } from './modules/materials/material.controller';
 import { QuoteRequestController } from './modules/quote-requests/quote-request.controller';
 import { PurchaseOrderController } from './modules/purchase-orders/purchase-order.controller';
+import { ApprovalController } from './modules/approvals/approval.controller';
 import { QuoteController } from './modules/quotes/quote.controller';
 import { QuotePdfController } from './modules/quotes/quote-pdf.controller';
 import { DashboardController } from './modules/dashboard/dashboard.controller';
@@ -192,6 +193,13 @@ export function createApp(): Application {
   // CO-5-08 — listagem de POs
   apiRouter.get('/purchase-orders', authenticate, requireTenant, PurchaseOrderController.list);
   apiRouter.get('/purchase-orders/:id', authenticate, requireTenant, PurchaseOrderController.getById);
+
+  // CO-6-02 — Aprovação hierárquica (workflow para quotes acima do threshold)
+  apiRouter.get('/approvals/pending-count', authenticate, requireTenant, ApprovalController.pendingCount);
+  apiRouter.get('/approvals', authenticate, requireTenant, ApprovalController.list);
+  apiRouter.get('/approvals/:id', authenticate, requireTenant, ApprovalController.getById);
+  apiRouter.post('/approvals/:id/approve', authenticate, requireTenant, ApprovalController.approve);
+  apiRouter.post('/approvals/:id/reject', authenticate, requireTenant, ApprovalController.reject);
   apiRouter.put('/quotes/:id/close', authenticate, requireTenant, QuoteController.close);
   apiRouter.post('/quotes/:id/close-total', authenticate, requireTenant, QuoteController.closeWithTotalWinner);
   apiRouter.post('/quotes/:id/close-by-item', authenticate, requireTenant, QuoteController.closeWithItemWinners);
@@ -268,6 +276,8 @@ export function createApp(): Application {
   apiRouter.get('/reports/savings', authenticate, requireTenant, ReportController.savings);
   apiRouter.get('/reports/supplier-performance', authenticate, requireTenant, ReportController.supplierPerformance);
   apiRouter.get('/reports/category-region', authenticate, requireTenant, ReportController.categoryRegion);
+  // CO-6-07 — histórico de preços agregado (min/max/avg/median por material+região+mês)
+  apiRouter.get('/reports/price-history', authenticate, requireTenant, ReportController.priceHistory);
   apiRouter.get('/reports/:type/export', authenticate, requireTenant, ReportController.exportReport);
 
   // Privacy/LGPD routes (protected + tenant isolation)

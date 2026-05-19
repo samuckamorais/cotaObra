@@ -4,6 +4,7 @@ import { ReportService } from './report.service';
 import { FSMEventService } from '../../services/fsm-event.service';
 import { exportToXlsx } from './exporters/xlsx.exporter';
 import { exportToPdf } from './exporters/pdf.exporter';
+import { PriceHistoryAggregateService } from '../../services/price-history-aggregate.service';
 
 function parseRange(req: Request): { startDate: Date; endDate: Date } {
   const q = req.query as Record<string, string>;
@@ -96,6 +97,37 @@ export class ReportController {
     const data = await ReportService.getCategoryRegion(tenantId, userId, { from, to, producerId });
     res.json({ success: true, data });
   });
+
+  /**
+   * CO-6-07 — GET /api/reports/price-history
+   *
+   * Query: materialId, description, region, fromPeriod (YYYY-MM), toPeriod (YYYY-MM)
+   * Resposta: array de agregações (min/max/avg/median por material+região+mês)
+   */
+  static priceHistory = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      const { tenantId } = (req as any).user;
+      const { materialId, description, region, fromPeriod, toPeriod } =
+        req.query as Record<string, string>;
+      const rows = await PriceHistoryAggregateService.query(tenantId, {
+        materialId,
+        description,
+        region,
+        fromPeriod,
+        toPeriod,
+      });
+      res.json({
+        success: true,
+        data: rows.map((r) => ({
+          ...r,
+          minPrice: Number(r.minPrice),
+          maxPrice: Number(r.maxPrice),
+          avgPrice: Number(r.avgPrice),
+          medianPrice: Number(r.medianPrice),
+        })),
+      });
+    },
+  );
 
   static compare = ErrorHandler.asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { tenantId, id: userId } = (req as any).user;

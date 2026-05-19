@@ -64,12 +64,25 @@ export function CloseQuoteModal({
 
     try {
       const result = await closeMut.mutateAsync({ quoteId, input });
+
+      // CO-6-02 — Cotação foi para aprovação em vez de gerar POs imediatamente
+      if (result.requiresApproval) {
+        toast({
+          title: 'Aprovação necessária 🛡️',
+          description: `Valor ${formatCurrency(result.estimatedTotal ?? result.totalValue)} excede teto de ${formatCurrency(result.threshold ?? 0)}. Aguardando aprovador.`,
+          variant: 'default',
+        });
+        onClose();
+        return;
+      }
+
+      const pos = result.purchaseOrders ?? [];
       toast({
-        title: `${result.purchaseOrders.length} OC(s) criada(s) ✅`,
+        title: `${pos.length} OC(s) criada(s) ✅`,
         description: `Total: ${formatCurrency(result.totalValue)} · PDFs em geração.`,
         variant: 'success',
       });
-      onClosed?.(result.purchaseOrderIds);
+      onClosed?.(result.purchaseOrderIds ?? []);
       onClose();
     } catch (err: any) {
       toast({

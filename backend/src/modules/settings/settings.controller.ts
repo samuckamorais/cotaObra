@@ -12,6 +12,8 @@ const updateSettingsSchema = z.object({
     .enum(['SELECTED', 'PRODUCER_WILL_CONTACT', 'NONE'])
     .optional(),
   quoteExpiryHours: z.number().int().min(1).max(720).optional(), // 1h a 30 dias
+  // CO-6-05: teto de aprovação (null = desabilita workflow)
+  approvalThreshold: z.number().min(0).max(99_999_999.99).nullable().optional(),
 });
 
 export class SettingsController {

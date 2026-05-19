@@ -10,6 +10,8 @@ export interface ProducerSettings {
   maxItemsPerQuote: number;
   winnerNotificationType: WinnerNotificationType;
   quoteExpiryHours: number;
+  /** CO-6-05: teto de aprovação. null/0 = sem teto (auto-aprovado). */
+  approvalThreshold: number | null;
 }
 
 export function useSettings() {

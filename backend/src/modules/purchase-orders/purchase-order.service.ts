@@ -9,6 +9,7 @@ import type {
   PurchaseOrderStatus,
 } from '@prisma/client';
 import { transitionQuote } from '../../services/quote-status.service';
+import { ApprovalService } from '../approvals/approval.service';
 
 /**
  * CO-5-02 — Purchase Order service.
@@ -43,6 +44,10 @@ export interface CloseQuoteInput {
 export interface CloseQuoteResult {
   purchaseOrders: PurchaseOrder[];
   totalValue: number;
+  /** CO-6-02: quando true, a quote foi roteada para aprovação em vez de criar POs */
+  requiresApproval?: boolean;
+  approvalId?: string;
+  threshold?: number;
 }
 
 export class PurchaseOrderService {
@@ -95,6 +100,38 @@ export class PurchaseOrderService {
 
     // Resolve POs a criar com base no modo
     const poPlans = this.planPurchaseOrders(quote, input);
+    const estimatedTotal = poPlans.reduce((sum, p) => sum + p.totalValue, 0);
+
+    // CO-6-02 — Se quote vem de SUMMARIZED e excede threshold, cria Approval.
+    // Se vem de AWAITING_APPROVAL, é replay pós-aprovação: pula o gate.
+    if (quote.status === 'SUMMARIZED') {
+      const gate = await ApprovalService.shouldRequireApproval(
+        quote.tenantId,
+        estimatedTotal,
+      );
+      if (gate.requires) {
+        const approval = await ApprovalService.createPending({
+          quoteId: quote.id,
+          requestedById: ctx.userId,
+          thresholdAmount: gate.threshold ?? 0,
+          totalAmount: estimatedTotal,
+          closeQuotePayload: input,
+        });
+        logger.info('purchase_order.requires_approval', {
+          quoteId: quote.id,
+          estimatedTotal,
+          threshold: gate.threshold,
+          approvalId: approval.id,
+        });
+        return {
+          purchaseOrders: [],
+          totalValue: estimatedTotal,
+          requiresApproval: true,
+          approvalId: approval.id,
+          threshold: gate.threshold ?? undefined,
+        };
+      }
+    }
 
     // Cria tudo em transação
     const result = await prisma.$transaction(async (tx) => {

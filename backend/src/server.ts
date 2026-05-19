@@ -14,6 +14,7 @@ import { startCollectRatingsJob } from './jobs/collect-ratings.job';
 import { startScheduledReportsJob } from './jobs/scheduled-reports.job';
 import { startFollowUpSuppliersJob } from './jobs/followup-suppliers.job';
 import { startDetectAbandonedQuotesJob } from './jobs/detect-abandoned-quotes.job';
+import { startPriceHistoryAggregateJob } from './jobs/compute-price-aggregate.job';
 import { sentryService } from './services/sentry.service';
 import { refreshPendingTokensOnStartup } from './services/refresh-pending-tokens.service';
 
@@ -48,6 +49,7 @@ async function start() {
     startCollectRatingsJob();
     startScheduledReportsJob();
     startDetectAbandonedQuotesJob();
+    startPriceHistoryAggregateJob();
 
     // Criar e iniciar Express app
     const app = createApp();

@@ -38,6 +38,21 @@ export class PurchaseOrderController {
 
       const result = await PurchaseOrderService.closeQuote(ctx, id, input);
 
+      // CO-6-02 — Se valor excedeu threshold, criamos Approval em vez de POs.
+      // Caller (frontend) deve mostrar tela "aguardando aprovação".
+      if (result.requiresApproval) {
+        res.json({
+          success: true,
+          data: {
+            requiresApproval: true,
+            approvalId: result.approvalId,
+            estimatedTotal: result.totalValue,
+            threshold: result.threshold,
+          },
+        });
+        return;
+      }
+
       // CO-5-05: enfileira geração do PDF para cada PO (async, não bloqueia resposta)
       for (const po of result.purchaseOrders) {
         try {

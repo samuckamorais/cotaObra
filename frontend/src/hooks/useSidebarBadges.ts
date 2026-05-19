@@ -6,6 +6,8 @@ interface SidebarBadges {
   whatsapp: 'ok' | 'error' | null;
   // CO-2-07: contagem de solicitações pendentes (fila do comprador)
   quoteRequestsPending: number | null;
+  // CO-6-03: contagem de aprovações pendentes (fila do APPROVER)
+  approvalsPending: number | null;
 }
 
 /**
@@ -58,6 +60,23 @@ export function useSidebarBadges(): SidebarBadges {
     refetchInterval: 60_000,
   });
 
+  // CO-6-03: aprovações pendentes
+  const { data: approvalsPendingData } = useQuery({
+    queryKey: ['sidebar-approvals-pending'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get<{ success: boolean; data: { count: number } }>(
+          '/approvals/pending-count',
+        );
+        return data.data.count;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
   const summarizedCount = quotesData?.collectingQuotes || 0;
   const whatsappStatus = whatsappData?.isConnected === true
     ? 'ok'
@@ -69,5 +88,7 @@ export function useSidebarBadges(): SidebarBadges {
     quotes: summarizedCount > 0 ? summarizedCount : null,
     whatsapp: whatsappStatus,
     quoteRequestsPending: pendingData && pendingData > 0 ? pendingData : null,
+    approvalsPending:
+      approvalsPendingData && approvalsPendingData > 0 ? approvalsPendingData : null,
   };
 }

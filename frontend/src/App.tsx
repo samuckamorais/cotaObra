@@ -31,6 +31,9 @@ const Materials = lazy(() => import('./pages/Materials'));
 const QuoteRequests = lazy(() => import('./pages/QuoteRequests'));
 const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
 const PurchaseOrderDetail = lazy(() => import('./pages/PurchaseOrderDetail'));
+// CO-6-03 — Aprovação hierárquica
+const Approvals = lazy(() => import('./pages/Approvals'));
+const ApprovalDetail = lazy(() => import('./pages/ApprovalDetail'));
 
 // Lazy load route components for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
@@ -142,6 +145,8 @@ function ProtectedLayout() {
                 <Route path="/quote-requests" element={<QuoteRequests />} />
                 <Route path="/purchase-orders" element={<PurchaseOrders />} />
                 <Route path="/purchase-orders/:id" element={<PurchaseOrderDetail />} />
+                <Route path="/approvals" element={<Approvals />} />
+                <Route path="/approvals/:id" element={<ApprovalDetail />} />
                 <Route path="/suppliers" element={<Suppliers />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/subscriptions" element={<Subscriptions />} />
@@ -178,6 +183,8 @@ function ProtectedLayout() {
               <Route path="/quote-requests" element={<QuoteRequests />} />
               <Route path="/purchase-orders" element={<PurchaseOrders />} />
               <Route path="/purchase-orders/:id" element={<PurchaseOrderDetail />} />
+              <Route path="/approvals" element={<Approvals />} />
+              <Route path="/approvals/:id" element={<ApprovalDetail />} />
               <Route path="/suppliers" element={<Suppliers />} />
               <Route path="/users" element={<Users />} />
               <Route path="/subscriptions" element={<Subscriptions />} />

@@ -5,6 +5,53 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.7.0 — Sprint 6 (Aprovação hierárquica & Histórico de preços)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-6-01 Schema `Approval` + `PriceHistoryAggregate`** — enum `ApprovalStatus(PENDING/APPROVED/REJECTED)`. Approval com `quoteId @unique`, `closeQuotePayload` JSON (payload de `closeQuote` reaplicado na aprovação), `thresholdAmount`/`totalAmount` Decimal, `requestedById`, `approverId` (opcional → fila aberta). PriceHistoryAggregate agregando `min/max/avg/medianPrice` por (tenant, materialId|description, region, period=YYYY-MM) com `paymentTermsBreakdown` JSON. Migration `20260518000110_*` com 5 tabelas/enums + 5 FKs + 6 índices.
+- **CO-6-02 `ApprovalService` + `approval.controller`**:
+  - `shouldRequireApproval(tenantId, estimatedTotal)` — consulta `TenantSettings.approvalThreshold`.
+  - `createPending` — cria Approval em PENDING, transiciona Quote para `AWAITING_APPROVAL`, dispara notificação.
+  - `list/countPending/getById` com RBAC: APPROVER vê suas OU `approverId=null` (fila aberta); ADMIN/SUPER_ADMIN veem tudo.
+  - `approve` — só PENDING, marca decidedAt + approverId. Controller reaplica `PurchaseOrderService.closeQuote` com payload salvo (gera POs + PDFs + notificações como no fluxo normal).
+  - `reject` — exige `reason ≥ 5 chars`, transiciona Quote de volta para `SUMMARIZED`.
+  - Endpoints: `GET /api/approvals`, `GET /api/approvals/pending-count`, `GET /api/approvals/:id`, `POST /api/approvals/:id/approve`, `POST /api/approvals/:id/reject`.
+- **Integração `PurchaseOrderService.closeQuote`** — antes de criar POs em SUMMARIZED, verifica threshold; se exceder cria Approval e retorna `{ requiresApproval, approvalId, threshold }`. Replay pós-aprovação (status=AWAITING_APPROVAL) pula o gate.
+- **CO-6-03 Frontend Aprovações**:
+  - `pages/Approvals.tsx` (`/approvals`) — cards com status, valor vs teto, obra, solicitante, idade. Filtro por status (PENDING default).
+  - `pages/ApprovalDetail.tsx` (`/approvals/:id`) — resumo financeiro (total + threshold + excedente %), tabela de propostas, ações **Aprovar e gerar OC** / **Rejeitar com motivo**. Em REJECTED mostra motivo + decisor + data.
+  - Hooks `useApprovals`, `useApproval`, `useApprovalsPendingCount`, `useApproveApproval`, `useRejectApproval`.
+  - Sidebar: item "Aprovações" com badge âmbar de pendentes (polling 60s).
+  - `CloseQuoteModal` mostra toast **"Aprovação necessária 🛡️"** quando backend retorna `requiresApproval`.
+- **CO-6-04 `NotifyApproverService`** — WhatsApp para `approverId` específico OU broadcast para todos APPROVER/ADMIN ativos do tenant. Mensagem com solicitante, obra, total, threshold ultrapassado e `Ref: <short-id>`. Disparado fire-and-forget em `createPending`.
+- **CO-6-05 Settings UI** — `TenantSettings.approvalThreshold` editável via `/api/settings` (PUT). Frontend Settings adiciona bloco **Aprovação hierárquica** com input `R$` + botão "desativar" (envia null). `tenant-settings.service` converte para `Prisma.Decimal`.
+- **CO-6-06 + CO-6-07 PriceHistoryAggregate**:
+  - `PriceHistoryAggregateService.computePeriod(YYYY-MM)` — agrega PriceHistoryRaw em buckets (tenant, materialId|description, region) calculando min/max/avg/median + breakdown de paymentTerms.
+  - `runDaily()` — recomputa mês corrente + mês anterior (idempotente; usa findFirst+create/update porque NULL em UNIQUE é distinto no Postgres).
+  - Job `compute-price-aggregate` — cron diário 00:30 (`node-cron`).
+  - Endpoint `GET /api/reports/price-history` com filtros materialId/description/region/fromPeriod/toPeriod (limit 500).
+
+### Migrations adicionadas
+
+- `20260518000110_co_6_approval_price_aggregate/` — Approval (4 FKs) + PriceHistoryAggregate (1 FK) + enum.
+
+### Não entregue (deferido)
+
+- **HSM aprovado pela Meta para notify-approver** — usa texto livre no sandbox; em produção precisa template HSM aprovado (`approval_pending`) com placeholders {{solicitante}}/{{obra}}/{{valor}}. Pendente do user.
+- **Email de aprovação** — só WhatsApp por ora (mesma limitação do CO-5-06).
+- **Backfill de PriceHistoryAggregate** — para tenants existentes precisa rodar `computePeriod(period)` manualmente para meses históricos. Sem migration de dados automática (defensivo; pode ser feito via comando admin).
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+- backend tests: pré-existentes falham por falta de `.env` de teste (não regressão deste sprint).
+
+---
+
 ## v0.6.0 — Sprint 5 (Fechamento, Purchase Order & PDF)
 
 **Data:** 2026-05-18

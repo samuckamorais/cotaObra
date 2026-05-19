@@ -41,6 +41,8 @@ model Tenant {
   quoteRequests         QuoteRequest[]
   purchaseOrders        PurchaseOrder[]
   priceHistoryRaw       PriceHistoryRaw[]
+  priceHistoryAggregate PriceHistoryAggregate[]
+  approvals             Approval[]
 
   @@index([slug])
   @@index([active])
@@ -240,6 +242,7 @@ model Quote {
   proposalTokens        ProposalToken[]
   supplierNotifications QuoteSupplierNotification[]
   purchaseOrders        PurchaseOrder[]
+  approval              Approval?
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -562,6 +565,8 @@ model User {
   permissions      Permission[]
   reportSchedules  ReportSchedule[]
   quoteRequests    QuoteRequest[]
+  approvalsRequested Approval[] @relation("ApprovalRequestedBy")
+  approvalsAsApprover Approval[] @relation("ApprovalApprover")
 
   @@index([email])
   @@index([tenantId])
@@ -1015,4 +1020,69 @@ model PriceHistoryRaw {
   @@index([tenantId, region, observedAt])
   @@index([supplierId])
   @@map("price_history_raw")
+}
+
+// =================================================================
+// CO-6 — Approval workflow + PriceHistoryAggregate
+// =================================================================
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// CO-6-01: Aprovação hierárquica. Quando a Quote escolhida exceder o
+/// `approvalThreshold` do tenant, o `closeQuote` cria uma Approval em
+/// PENDING e move a Quote para AWAITING_APPROVAL. Diretor (APPROVER) decide.
+model Approval {
+  id              String         @id @default(uuid())
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId        String
+  quote           Quote          @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId         String         @unique // 1 approval ativo por quote
+  requestedBy     User           @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  requestedById   String
+  approver        User?          @relation("ApprovalApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  approverId      String?
+
+  status          ApprovalStatus @default(PENDING)
+  thresholdAmount Decimal        @db.Decimal(14, 2)
+  totalAmount     Decimal        @db.Decimal(14, 2)
+  /// Payload do fechamento proposto (mode/supplierId/selections) — quando aprovar,
+  /// reaplica este payload no closeQuote.
+  closeQuotePayload Json
+  reason          String? // motivo da rejeição
+  decidedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([tenantId, status])
+  @@index([approverId])
+  @@map("approvals")
+}
+
+/// CO-6-06: Agregação diária de PriceHistoryRaw para relatórios rápidos.
+/// Re-calculada por cron 03:00 cobrindo últimos 13 meses por material+região.
+model PriceHistoryAggregate {
+  id            String   @id @default(uuid())
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId      String
+  materialId    String? // null = agregação por descrição livre
+  description   String // descrição canônica (quando materialId=null)
+  region        String
+  /// formato YYYY-MM (ex: "2026-05")
+  period        String
+  minPrice      Decimal  @db.Decimal(14, 2)
+  maxPrice      Decimal  @db.Decimal(14, 2)
+  avgPrice      Decimal  @db.Decimal(14, 2)
+  medianPrice   Decimal  @db.Decimal(14, 2)
+  samples       Int
+  paymentTermsBreakdown Json? // { "à vista": 12, "28dd": 5, ... }
+  computedAt    DateTime @default(now())
+
+  @@unique([tenantId, materialId, description, region, period])
+  @@index([tenantId, materialId, period])
+  @@index([tenantId, region, period])
+  @@map("price_history_aggregate")
 }

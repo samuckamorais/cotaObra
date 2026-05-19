@@ -52,15 +52,20 @@ export interface CloseQuoteInput {
 }
 
 export interface CloseQuoteResult {
-  purchaseOrderIds: string[];
+  purchaseOrderIds?: string[];
   totalValue: number;
-  purchaseOrders: Array<{
+  purchaseOrders?: Array<{
     id: string;
     number: number;
     supplierId: string;
     totalValue: number;
     status: PurchaseOrderStatus;
   }>;
+  /** CO-6-02 — backend roteou para Approval por exceder threshold */
+  requiresApproval?: boolean;
+  approvalId?: string;
+  estimatedTotal?: number;
+  threshold?: number;
 }
 
 const clean = (o: Record<string, unknown>) =>
@@ -118,6 +123,7 @@ export function useCloseQuote() {
       queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
       queryClient.invalidateQueries({ queryKey: ['quotes'] });
       queryClient.invalidateQueries({ queryKey: ['quote-comparative'] });
+      queryClient.invalidateQueries({ queryKey: ['approvals'] });
     },
   });
 }
