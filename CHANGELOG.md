@@ -5,6 +5,43 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.9.0 — Sprint 8 (ERP Webhook outbound + Billing Asaas)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-8-01 Schema TenantSettings** — campos `erpWebhookUrl`, `erpWebhookSecret`, `erpAdapter` (`generic`/`sienge`/`gvdasa`). Migration `20260518000120_*`.
+- **CO-8-01 `ErpWebhookService`** — gera payload por adapter (generic flat JSON; sienge POMaster+POItems; gvdasa cabecalhoOC+itensOC), assina com HMAC-SHA256 (`x-cotaobra-signature: sha256=<hex>`), envia via fetch com headers `x-cotaobra-adapter` + `x-cotaobra-event`. CNPJ do supplier exposto apenas como hash (criptografado em repouso); CNO do site para integração construção.
+- **CO-8-02 Job `send-erp-webhook`** — Bull queue com 5 tentativas + backoff exponencial (5s/25s/125s/625s/3125s). Enfileirado em `PurchaseOrderService.setPdfUrl` (após status=EMITTED). Não bloqueia emissão; falhas só logam + retry.
+- **Settings UI ERP** — 3 inputs: URL do webhook, dropdown de adapter, secret HMAC (password input). Frontend nunca exibe o secret armazenado; só envia se usuário digitar um novo. Backend retorna `erpWebhookConfigured: boolean` indicando se está setup.
+- **CO-8-04 `AsaasAdapter`** — wrapper para `https://api.asaas.com/v3` com modo stub quando `ASAAS_API_KEY` ausente (gera customerId/subscriptionId fakes determinísticos a partir do CNPJ, retorna URL de checkout local). Métodos: `createCustomer`, `createSubscription`, `getCheckoutUrl`, `cancelSubscription`, `verifyWebhook`. Planos: BASIC R$149, PRO R$499, ENTERPRISE R$1.499/mês via BOLETO default.
+- **Schema Subscription** — campos `asaasCustomerId`, `asaasSubscriptionId @unique`, `asaasBillingType` para reconciliação. Index único parcial em `asaasSubscriptionId`.
+- **`BillingService` migrado de Stripe stub → Asaas adapter**:
+  - `createCheckoutSession`: cria customer Asaas se não existe, cria subscription, persiste em `Subscription` local com IDs Asaas + retorna URL checkout.
+  - `cancelSubscription`: chama Asaas DELETE + marca local `active=false`.
+  - `handleWebhookEvent`: mapeia eventos Asaas (`PAYMENT_CONFIRMED`, `PAYMENT_OVERDUE`, `SUBSCRIPTION_DELETED`) + mantém compat com formato legado Stripe. `PAYMENT_OVERDUE` faz lock soft (`quotesUsed = quotesLimit`).
+- **`BillingController.webhook`** — valida header `asaas-access-token === ASAAS_API_KEY` (modo stub aceita qualquer); usa `req.body.event` + `req.body.payment` para extrair eventType + subscriptionId.
+- **`env.ts`** — `ASAAS_API_KEY` (optional) + `ASAAS_BASE_URL` (default `https://api.asaas.com/v3`).
+
+### Migrations adicionadas
+
+- `20260518000120_co_8_erp_asaas_integration/` — TenantSettings 3 cols + Subscription 3 cols + 1 unique index parcial.
+
+### Não entregue (deferido)
+
+- **Decryption do supplier CNPJ no webhook ERP** — atualmente expõe apenas `cnpjHash`. Decrypt explícito via campo encryption-service requer secret key adicional; deferido até cliente real pedir.
+- **HMAC validation no controller billing/webhook** — Asaas envia o mesmo `ASAAS_API_KEY` no header. Em produção pode-se adicionar IP whitelisting do range Asaas.
+- **Test webhook button na UI** — UX pra fazer dry-run do ERP webhook (envia payload de teste). Útil mas não bloqueia integração.
+- **ASAAS_API_KEY real do cliente** — usuário precisa cadastrar conta Asaas e fornecer chave em produção. Sandbox key: `$ASAAS_API_KEY` placeholder no env.
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+
+---
+
 ## v0.8.0 — Sprint 7 (Relatórios + Dashboard real + Onboarding)
 
 **Data:** 2026-05-18

@@ -136,6 +136,11 @@ const envSchema = z.object({
     .string()
     .default('true')
     .transform((v) => v === 'true'),
+
+  // CO-8-04 — Asaas billing (gateway BR PIX/Boleto/Cartão).
+  // null/vazio = modo stub (sem cobrança real, mas IDs fakes persistidos).
+  ASAAS_API_KEY: z.string().optional(),
+  ASAAS_BASE_URL: z.string().default('https://api.asaas.com/v3'),
 });
 
 export type Env = z.infer<typeof envSchema>;

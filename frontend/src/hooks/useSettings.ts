@@ -12,6 +12,12 @@ export interface ProducerSettings {
   quoteExpiryHours: number;
   /** CO-6-05: teto de aprovação. null/0 = sem teto (auto-aprovado). */
   approvalThreshold: number | null;
+  /** CO-8-01: integração ERP */
+  erpWebhookUrl: string | null;
+  erpAdapter: 'generic' | 'sienge' | 'gvdasa' | null;
+  erpWebhookConfigured?: boolean;
+  /** Apenas no PUT — backend nunca retorna. */
+  erpWebhookSecret?: string | null;
 }
 
 export function useSettings() {

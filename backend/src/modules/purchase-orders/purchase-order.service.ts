@@ -465,6 +465,7 @@ export class PurchaseOrderService {
 
   /**
    * Atualiza pdfUrl/pdfPath após o job gerar o PDF.
+   * CO-8-02 — ao marcar como EMITTED, dispara webhook ERP (se configurado).
    */
   static async setPdfUrl(
     id: string,
@@ -480,5 +481,13 @@ export class PurchaseOrderService {
         status: 'EMITTED',
       },
     });
+
+    // Dispara webhook ERP fire-and-forget. Falhas não impedem emissão.
+    try {
+      const { enqueueErpWebhook } = await import('../../jobs/send-erp-webhook.job');
+      await enqueueErpWebhook(id);
+    } catch (err: any) {
+      logger.warn('erp_webhook.enqueue_failed', { purchaseOrderId: id, err: err?.message });
+    }
   }
 }

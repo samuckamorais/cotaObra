@@ -442,6 +442,12 @@ model Subscription {
   endDate     DateTime
   active      Boolean  @default(true)
 
+  // CO-8-04 — Integração Asaas (gateway BR: PIX/Boleto/CartãoCredito).
+  // Quando preenchidos, status é sincronizado pelos webhooks Asaas.
+  asaasCustomerId      String? // cus_xxxxx
+  asaasSubscriptionId  String? @unique // sub_xxxxx (uniq pra reconciliação)
+  asaasBillingType     String? // PIX | BOLETO | CREDIT_CARD | UNDEFINED
+
   @@index([tenantId])
   @@map("subscriptions")
 }
@@ -641,6 +647,15 @@ model TenantSettings {
   // Provider de WhatsApp default deste tenant (override do env).
   // null = usa env global. Útil para futuro multi-provider por tenant ENTERPRISE.
   whatsappProvider String?
+
+  // CO-8-01 — Integração com ERP do cliente.
+  // Quando PO é emitida, envia POST signed (HMAC-SHA256) para erpWebhookUrl.
+  // erpAdapter define o mapping do payload: 'generic' (default), 'sienge', 'gvdasa'.
+  // Backend assina com erpWebhookSecret (gerado no setup) e o cliente valida via
+  // header `x-cotaobra-signature`.
+  erpWebhookUrl    String?
+  erpWebhookSecret String? // 32+ chars; null = desativa integração mesmo com URL setada
+  erpAdapter       String? @default("generic") // generic | sienge | gvdasa
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings2, Clock, CalendarDays, Users, Package, Save, CheckCircle, ShieldCheck } from 'lucide-react';
+import { Settings2, Clock, CalendarDays, Users, Package, Save, CheckCircle, ShieldCheck, Webhook, KeyRound } from 'lucide-react';
 import { useSettings, useUpdateSettings, ProducerSettings } from '../hooks/useSettings';
 import { SkeletonSettings } from '../components/ui/skeleton';
 import { TwoFactorSection } from '../components/settings/TwoFactorSection';
@@ -23,7 +23,11 @@ export function SettingsPage() {
     winnerNotificationType: 'NONE',
     quoteExpiryHours: 2,
     approvalThreshold: null,
+    erpWebhookUrl: null,
+    erpAdapter: 'generic',
+    erpWebhookSecret: null,
   });
+  const [erpSecretInput, setErpSecretInput] = useState('');
 
   const [saved, setSaved] = useState(false);
 
@@ -40,7 +44,15 @@ export function SettingsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings(form);
+    // Não enviamos `erpWebhookSecret` se o usuário não digitou nada novo;
+    // backend mantém o valor atual.
+    const payload: Partial<ProducerSettings> = { ...form };
+    if (erpSecretInput.trim().length > 0) {
+      payload.erpWebhookSecret = erpSecretInput.trim();
+    } else {
+      delete payload.erpWebhookSecret;
+    }
+    updateSettings(payload as ProducerSettings);
   };
 
   const field = (key: keyof ProducerSettings, value: number | string | null) =>
@@ -227,6 +239,65 @@ export function SettingsPage() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* CO-8-01: Bloco Integração ERP */}
+        <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+          <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
+            <Webhook className="w-4 h-4 text-muted-foreground" />
+            Integração com ERP
+          </h2>
+
+          <div className="space-y-1.5">
+            <label className="text-sm text-foreground">URL do webhook</label>
+            <p className="text-xs text-muted-foreground">
+              Endpoint do seu ERP que receberá um POST signed (HMAC-SHA256) sempre que uma Ordem de Compra for emitida. Deixe em branco para desativar.
+            </p>
+            <input
+              type="url"
+              placeholder="https://erp.suaempresa.com.br/api/cotaobra/po"
+              value={form.erpWebhookUrl ?? ''}
+              onChange={(e) =>
+                field('erpWebhookUrl', e.target.value.trim() === '' ? null : e.target.value)
+              }
+              className="w-full px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm text-foreground">Adapter de payload</label>
+            <p className="text-xs text-muted-foreground">
+              Define o formato do payload enviado. Use <strong>generic</strong> se o seu ERP aceita JSON nativo CotaObra.
+            </p>
+            <select
+              value={form.erpAdapter ?? 'generic'}
+              onChange={(e) =>
+                field('erpAdapter', e.target.value as 'generic' | 'sienge' | 'gvdasa')
+              }
+              className="w-48 px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground"
+            >
+              <option value="generic">Generic (JSON CotaObra)</option>
+              <option value="sienge">Sienge (POMaster + POItems)</option>
+              <option value="gvdasa">GVdasa (cabecalhoOC + itensOC)</option>
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm text-foreground flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-muted-foreground" />
+              Secret HMAC
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Compartilhado entre CotaObra e seu ERP — usado para assinar o webhook. Mínimo 16 caracteres. {settings?.erpWebhookConfigured && 'Já configurado — preencha somente para alterar.'}
+            </p>
+            <input
+              type="password"
+              placeholder={settings?.erpWebhookConfigured ? '••••••••• (preenchido)' : 'Cole ou gere um valor seguro'}
+              value={erpSecretInput}
+              onChange={(e) => setErpSecretInput(e.target.value)}
+              className="w-full px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono"
+            />
           </div>
         </div>
 

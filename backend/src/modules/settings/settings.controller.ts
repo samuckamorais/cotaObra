@@ -14,6 +14,10 @@ const updateSettingsSchema = z.object({
   quoteExpiryHours: z.number().int().min(1).max(720).optional(), // 1h a 30 dias
   // CO-6-05: teto de aprovação (null = desabilita workflow)
   approvalThreshold: z.number().min(0).max(99_999_999.99).nullable().optional(),
+  // CO-8-01: integração ERP
+  erpWebhookUrl: z.string().url().max(500).nullable().optional(),
+  erpAdapter: z.enum(['generic', 'sienge', 'gvdasa']).nullable().optional(),
+  erpWebhookSecret: z.string().min(16).max(255).nullable().optional(),
 });
 
 export class SettingsController {

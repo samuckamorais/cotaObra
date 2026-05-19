@@ -15,9 +15,25 @@ export interface TenantSettingsData {
   quoteExpiryHours: number;
   /** CO-6-05: teto acima do qual fechamentos exigem aprovação. null = sem teto. */
   approvalThreshold: number | null;
+  /** CO-8-01: URL de webhook do ERP do cliente. null = sem integração. */
+  erpWebhookUrl: string | null;
+  /** Adapter de payload (generic|sienge|gvdasa). */
+  erpAdapter: string | null;
+  /** Secret HMAC (32+ chars). Não retornado em GET por segurança. */
+  erpWebhookSecret?: string | null;
+  /** Apenas indica se está configurado (não expõe o valor). */
+  erpWebhookConfigured: boolean;
 }
 
-const DEFAULTS: Omit<TenantSettingsData, 'approvalThreshold'> = {
+type DefaultsKey =
+  | 'proposalLinkExpiryHours'
+  | 'quoteDeadlineDays'
+  | 'defaultSupplierScope'
+  | 'maxItemsPerQuote'
+  | 'winnerNotificationType'
+  | 'quoteExpiryHours';
+
+const DEFAULTS: Pick<TenantSettingsData, DefaultsKey> = {
   proposalLinkExpiryHours: 24,
   quoteDeadlineDays: 3,
   // 'MINE' enquanto ENABLE_NETWORK_SUPPLIERS=false (lançamento sem rede ativa).
@@ -50,7 +66,12 @@ export class TenantSettingsService {
       winnerNotificationType:
         (settings.winnerNotificationType as WinnerNotificationType) ?? 'NONE',
       quoteExpiryHours: settings.quoteExpiryHours ?? 2,
-      approvalThreshold: settings.approvalThreshold ? Number(settings.approvalThreshold) : null,
+      approvalThreshold: settings.approvalThreshold
+        ? Number(settings.approvalThreshold)
+        : null,
+      erpWebhookUrl: settings.erpWebhookUrl,
+      erpAdapter: settings.erpAdapter ?? 'generic',
+      erpWebhookConfigured: !!settings.erpWebhookSecret && !!settings.erpWebhookUrl,
     };
   }
 
@@ -61,7 +82,8 @@ export class TenantSettingsService {
     tenantId: string,
     data: Partial<TenantSettingsData>,
   ): Promise<TenantSettingsData> {
-    const { approvalThreshold, ...rest } = data;
+    const { approvalThreshold, erpWebhookConfigured, ...rest } = data;
+    void erpWebhookConfigured; // read-only no payload, ignorar se vier
     const toWrite: Prisma.TenantSettingsUpdateInput = { ...rest };
     if (approvalThreshold !== undefined) {
       toWrite.approvalThreshold =
@@ -92,7 +114,12 @@ export class TenantSettingsService {
       winnerNotificationType:
         (settings.winnerNotificationType as WinnerNotificationType) ?? 'NONE',
       quoteExpiryHours: settings.quoteExpiryHours ?? 2,
-      approvalThreshold: settings.approvalThreshold ? Number(settings.approvalThreshold) : null,
+      approvalThreshold: settings.approvalThreshold
+        ? Number(settings.approvalThreshold)
+        : null,
+      erpWebhookUrl: settings.erpWebhookUrl,
+      erpAdapter: settings.erpAdapter ?? 'generic',
+      erpWebhookConfigured: !!settings.erpWebhookSecret && !!settings.erpWebhookUrl,
     };
   }
 }
