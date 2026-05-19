@@ -6,6 +6,7 @@ import { EmptyState } from '../components/ui/empty-state';
 import { SkeletonCard } from '../components/ui/skeleton';
 import { Button } from '../components/ui/button';
 import { OnboardingChecklist } from '../components/onboarding/OnboardingChecklist';
+import { OnboardingChecklistV2 } from '../components/onboarding/OnboardingChecklistV2';
 import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
 import { useDashboard, useCotaObraKpis } from '../hooks/useDashboard';
 import { useSettings, useUpdateSettings, WinnerNotificationType } from '../hooks/useSettings';
@@ -155,7 +156,10 @@ export function Dashboard() {
           ))}
         </div>
 
-        {/* Onboarding Checklist - Show if not complete */}
+        {/* CO-7-05 — Onboarding CotaObra (backend-driven, tenant-scoped) */}
+        <OnboardingChecklistV2 />
+
+        {/* Onboarding Checklist legado (localStorage-driven) - Show if not complete */}
         {!isComplete && (
           <OnboardingChecklist
             items={[

@@ -13,6 +13,8 @@ import {
   useReportSavings,
   useReportSupplierPerformance,
   useReportCategoryRegion,
+  useReportTopMaterials,
+  useReportSiteSpending,
 } from '../hooks/useReports';
 import {
   AlertTriangle,
@@ -27,7 +29,7 @@ import {
   Users,
 } from 'lucide-react';
 
-type Tab = 'funnel' | 'operational' | 'savings' | 'suppliers' | 'category';
+type Tab = 'funnel' | 'operational' | 'savings' | 'suppliers' | 'category' | 'topMaterials' | 'siteSpending';
 
 // Utilitário para montar datas padrão
 function defaultDates(): { from: string; to: string } {
@@ -741,6 +743,9 @@ export function Reports() {
     { id: 'savings', label: 'Economia', icon: PiggyBank, description: 'Valor economizado nas cotações' },
     { id: 'suppliers', label: 'Fornecedores', icon: Users, description: 'Performance por fornecedor' },
     { id: 'category', label: 'Categoria/Região', icon: MapPin, description: 'Volume e demanda por mercado' },
+    // CO-7-03 + CO-7-04
+    { id: 'topMaterials', label: 'Top materiais', icon: Package, description: 'Materiais mais comprados (PO)' },
+    { id: 'siteSpending', label: 'Gasto por obra', icon: Building2, description: 'Volume agregado por Site' },
   ];
 
   return (
@@ -781,7 +786,166 @@ export function Reports() {
         {activeTab === 'savings' && <SavingsReport />}
         {activeTab === 'suppliers' && <SupplierPerformanceReport />}
         {activeTab === 'category' && <CategoryRegionReport />}
+        {activeTab === 'topMaterials' && <TopMaterialsReport />}
+        {activeTab === 'siteSpending' && <SiteSpendingReport />}
       </div>
+    </div>
+  );
+}
+
+// ─── CO-7-03 — Top materiais ────────────────────────────────────────────────
+function TopMaterialsReport() {
+  const [{ from, to }, setRange] = useState(defaultDates());
+  const { data, isLoading } = useReportTopMaterials({ from, to, limit: 20 });
+
+  if (isLoading) return <ReportSkeleton />;
+  if (!data || data.items.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          Nenhuma Ordem de Compra no período selecionado.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Package className="size-4" />
+            Top materiais por gasto
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase text-muted-foreground border-b">
+                <th className="py-2">#</th>
+                <th className="py-2">Descrição</th>
+                <th className="py-2 text-right">Qtd total</th>
+                <th className="py-2 text-right">Gasto</th>
+                <th className="py-2 text-right">OCs</th>
+                <th className="py-2 text-right">Forn.</th>
+                <th className="py-2 text-right">Preço médio (un)</th>
+                <th className="py-2 text-right">Min</th>
+                <th className="py-2 text-right">Max</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((m, i) => (
+                <tr key={`${m.description}-${i}`} className="border-b hover:bg-muted/30">
+                  <td className="py-2 text-muted-foreground">{i + 1}</td>
+                  <td className="py-2 font-medium">{m.description}</td>
+                  <td className="py-2 text-right">{m.totalQty.toFixed(2)} {m.unit}</td>
+                  <td className="py-2 text-right font-semibold">{formatCurrency(m.totalSpend)}</td>
+                  <td className="py-2 text-right">{m.poCount}</td>
+                  <td className="py-2 text-right">{m.suppliersCount}</td>
+                  <td className="py-2 text-right">{formatCurrency(m.avgUnitPrice)}</td>
+                  <td className="py-2 text-right text-green-700">{formatCurrency(m.minUnitPrice)}</td>
+                  <td className="py-2 text-right text-red-700">{formatCurrency(m.maxUnitPrice)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── CO-7-04 — Gasto por obra ───────────────────────────────────────────────
+function SiteSpendingReport() {
+  const [{ from, to }, setRange] = useState(defaultDates());
+  const { data, isLoading } = useReportSiteSpending({ from, to });
+
+  if (isLoading) return <ReportSkeleton />;
+  if (!data || data.sites.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          Nenhuma obra encontrada para o período selecionado.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const maxSpend = Math.max(...data.sites.map((s) => s.totalSpend), 1);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
+      </div>
+
+      {/* Totais */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase text-muted-foreground">Gasto total</p>
+            <p className="text-2xl font-semibold mt-1">{formatCurrency(data.totals.totalSpend)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase text-muted-foreground">Ordens de compra</p>
+            <p className="text-2xl font-semibold mt-1">{data.totals.totalPoCount}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase text-muted-foreground">Economia estimada</p>
+            <p className="text-2xl font-semibold mt-1 text-green-700">
+              {formatCurrency(data.totals.totalEstimatedSavings)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Building2 className="size-4" />
+            Ranking de obras por gasto
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {data.sites.map((s) => (
+              <div key={s.siteId} className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <strong>{s.siteName}</strong>
+                    <Badge className="text-[10px]">{s.region}</Badge>
+                    {s.status === 'ACTIVE' && (
+                      <Badge className="bg-green-100 text-green-700 text-[10px]">Ativa</Badge>
+                    )}
+                    {s.status === 'COMPLETED' && (
+                      <Badge className="bg-gray-100 text-gray-700 text-[10px]">Concluída</Badge>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">{formatCurrency(s.totalSpend)}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {s.poCount} OC · {s.quotesCount} cot. · economia ~{formatCurrency(s.estimatedSavings)}
+                    </p>
+                  </div>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${(s.totalSpend / maxSpend) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

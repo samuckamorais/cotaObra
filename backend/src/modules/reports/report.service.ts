@@ -429,7 +429,166 @@ export class ReportService {
   }
 
   // ─────────────────────────────────────────────────────────────────
-  // 6. COMPARAÇÃO DE PERÍODOS
+  // 6. TOP MATERIAIS (CO-7-03)
+  // ─────────────────────────────────────────────────────────────────
+  /**
+   * Top materiais por frequência de cotação + spend agregado.
+   * Lê PurchaseOrderItem (= materiais efetivamente comprados) + opcionalmente
+   * cruza com Material catálogo para enriquecer.
+   */
+  static async getTopMaterials(
+    tenantId: string,
+    params: DateRangeParams & { limit?: number },
+  ) {
+    const createdAt = this.defaultDateRange(params.from, params.to);
+    const limit = params.limit ?? 10;
+
+    // Agrega por description (PO snapshot preserva mesmo se material catalogue mudar)
+    const items = await prisma.purchaseOrderItem.findMany({
+      where: {
+        purchaseOrder: { tenantId, createdAt, status: { in: ['EMITTED', 'DRAFT'] } },
+      },
+      select: {
+        description: true,
+        qty: true,
+        unit: true,
+        totalPrice: true,
+        unitPrice: true,
+        purchaseOrder: { select: { supplierId: true } },
+      },
+    });
+
+    const grouped = new Map<
+      string,
+      {
+        description: string;
+        unit: string;
+        totalQty: number;
+        totalSpend: number;
+        pos: number;
+        unitPrices: number[];
+        suppliers: Set<string>;
+      }
+    >();
+
+    for (const it of items) {
+      const k = it.description.trim().toLowerCase();
+      const g = grouped.get(k) ?? {
+        description: it.description.trim(),
+        unit: it.unit,
+        totalQty: 0,
+        totalSpend: 0,
+        pos: 0,
+        unitPrices: [],
+        suppliers: new Set<string>(),
+      };
+      g.totalQty += Number(it.qty);
+      g.totalSpend += Number(it.totalPrice);
+      g.pos += 1;
+      g.unitPrices.push(Number(it.unitPrice));
+      g.suppliers.add(it.purchaseOrder.supplierId);
+      grouped.set(k, g);
+    }
+
+    const ranked = Array.from(grouped.values())
+      .map((g) => ({
+        description: g.description,
+        unit: g.unit,
+        totalQty: Math.round(g.totalQty * 100) / 100,
+        totalSpend: Math.round(g.totalSpend * 100) / 100,
+        poCount: g.pos,
+        suppliersCount: g.suppliers.size,
+        avgUnitPrice:
+          Math.round(
+            (g.unitPrices.reduce((s, v) => s + v, 0) / Math.max(1, g.unitPrices.length)) * 100,
+          ) / 100,
+        minUnitPrice: g.unitPrices.length > 0 ? Math.min(...g.unitPrices) : 0,
+        maxUnitPrice: g.unitPrices.length > 0 ? Math.max(...g.unitPrices) : 0,
+      }))
+      .sort((a, b) => b.totalSpend - a.totalSpend)
+      .slice(0, limit);
+
+    return { items: ranked };
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // 7. GASTO POR OBRA (CO-7-04)
+  // ─────────────────────────────────────────────────────────────────
+  static async getSiteSpending(tenantId: string, params: DateRangeParams) {
+    const createdAt = this.defaultDateRange(params.from, params.to);
+
+    const sites = await prisma.site.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        name: true,
+        region: true,
+        status: true,
+        quotes: {
+          where: { createdAt },
+          select: {
+            id: true,
+            status: true,
+            purchaseOrders: {
+              select: { id: true, totalValue: true, status: true },
+            },
+            proposals: { select: { totalPrice: true } },
+          },
+        },
+      },
+    });
+
+    const rows = sites.map((s) => {
+      let totalSpend = 0;
+      let poCount = 0;
+      let quotesClosed = 0;
+      let estimatedSavings = 0;
+
+      for (const q of s.quotes) {
+        for (const po of q.purchaseOrders) {
+          if (po.status !== 'CANCELLED') {
+            totalSpend += Number(po.totalValue);
+            poCount += 1;
+          }
+        }
+        if (q.status === 'CLOSED') {
+          quotesClosed += 1;
+          const prices = q.proposals
+            .map((p: any) => Number(p.totalPrice))
+            .filter((n: number) => Number.isFinite(n) && n > 0);
+          if (prices.length >= 2) {
+            estimatedSavings += Math.max(...prices) - Math.min(...prices);
+          }
+        }
+      }
+
+      return {
+        siteId: s.id,
+        siteName: s.name,
+        region: s.region,
+        status: s.status,
+        totalSpend: Math.round(totalSpend * 100) / 100,
+        poCount,
+        quotesCount: s.quotes.length,
+        quotesClosed,
+        estimatedSavings: Math.round(estimatedSavings * 100) / 100,
+      };
+    });
+
+    rows.sort((a, b) => b.totalSpend - a.totalSpend);
+
+    return {
+      sites: rows,
+      totals: {
+        totalSpend: rows.reduce((s, r) => s + r.totalSpend, 0),
+        totalPoCount: rows.reduce((s, r) => s + r.poCount, 0),
+        totalEstimatedSavings: rows.reduce((s, r) => s + r.estimatedSavings, 0),
+      },
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // 8. COMPARAÇÃO DE PERÍODOS
   // ─────────────────────────────────────────────────────────────────
   static async comparePeriods(
     tenantId: string,

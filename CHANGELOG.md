@@ -5,6 +5,32 @@ SemVer adaptado a sprints (`vSprintN`).
 
 ---
 
+## v0.8.0 — Sprint 7 (Relatórios + Dashboard real + Onboarding)
+
+**Data:** 2026-05-18
+
+### Adicionado
+
+- **CO-7-03 `GET /api/reports/top-materials`** — agrega `PurchaseOrderItem` por descrição (normalizada lowercase) calculando totalQty, totalSpend, poCount, suppliersCount, avg/min/max unitPrice. Ordena por totalSpend desc, limit configurável (default 10). Frontend `TopMaterialsReport` em tabela com 9 colunas.
+- **CO-7-04 `GET /api/reports/site-spending`** — agrega gastos por `Site` (Obra) somando `PurchaseOrder.totalValue` (excluindo CANCELLED), # POs, # quotes total/closed, `estimatedSavings` (delta max-min de propostas em quotes fechadas). Retorna `{ sites, totals }`. Frontend `SiteSpendingReport` com 3 cards de totalizadores + ranking visual (barra horizontal proporcional ao maior gasto).
+- **CO-7-05 Onboarding V2 tenant-scoped** — `OnboardingService.getProgress(tenantId)` retorna `OnboardingProgressV2` com 7 steps: signup, firstSite, firstSupplier, firstMaterial, firstQuote, firstProposal, firstPO. Cada step tem `cta: { label, href }`. Controller migrou de `producerId` para `tenantId`.
+- **`useOnboarding` + `OnboardingChecklistV2`** — backend-driven (substitui localStorage). Renderiza progress bar, lista com CheckCircle/Circle, CTA por step, dispensável via X (guardado em localStorage). Dashboard exibe acima do checklist legado.
+- **Hooks `useReportTopMaterials` + `useReportSiteSpending`** + tipos `TopMaterialRow`/`SiteSpendingRow`.
+- **Reports.tsx** — 2 novas abas (Top materiais, Gasto por obra) na navegação.
+
+### Não entregue (deferido)
+
+- **Dashboard real** — KPIs CotaObra já entregues em CO-1-12 (Sprint 1) com openQuotes/pendingProposals/savings30d/activeSites baseados em quotes + proposals + sites reais; não há refactor pendente para esta sprint.
+- **Comparação de períodos com top-materials/site-spending** — `ReportService.comparePeriods` ainda só aceita 'funnel'|'savings'. Extender para os novos relatórios fica para Sprint futura quando UX pedir.
+- **PDF/XLSX export dos novos relatórios** — `exportReport` endpoint só conhece tipos antigos. Não-blocker.
+
+### Validação
+
+- backend `tsc --noEmit`: **0 erros**
+- frontend `tsc --noEmit`: **0 erros**
+
+---
+
 ## v0.7.0 — Sprint 6 (Aprovação hierárquica & Histórico de preços)
 
 **Data:** 2026-05-18

@@ -99,6 +99,33 @@ export class ReportController {
   });
 
   /**
+   * CO-7-03 — GET /api/reports/top-materials
+   * Top N materiais por gasto (PurchaseOrderItem agregado).
+   */
+  static topMaterials = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      const { tenantId } = (req as any).user;
+      const { from, to } = req.query as Record<string, string>;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const data = await ReportService.getTopMaterials(tenantId, { from, to, limit });
+      res.json({ success: true, data });
+    },
+  );
+
+  /**
+   * CO-7-04 — GET /api/reports/site-spending
+   * Gasto agregado por Site (Obra) com # POs + savings estimado.
+   */
+  static siteSpending = ErrorHandler.asyncHandler(
+    async (req: Request, res: Response): Promise<void> => {
+      const { tenantId } = (req as any).user;
+      const { from, to } = req.query as Record<string, string>;
+      const data = await ReportService.getSiteSpending(tenantId, { from, to });
+      res.json({ success: true, data });
+    },
+  );
+
+  /**
    * CO-6-07 — GET /api/reports/price-history
    *
    * Query: materialId, description, region, fromPeriod (YYYY-MM), toPeriod (YYYY-MM)

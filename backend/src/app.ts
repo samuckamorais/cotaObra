@@ -278,6 +278,9 @@ export function createApp(): Application {
   apiRouter.get('/reports/category-region', authenticate, requireTenant, ReportController.categoryRegion);
   // CO-6-07 — histórico de preços agregado (min/max/avg/median por material+região+mês)
   apiRouter.get('/reports/price-history', authenticate, requireTenant, ReportController.priceHistory);
+  // CO-7-03 / CO-7-04 — top materiais + gasto por obra
+  apiRouter.get('/reports/top-materials', authenticate, requireTenant, ReportController.topMaterials);
+  apiRouter.get('/reports/site-spending', authenticate, requireTenant, ReportController.siteSpending);
   apiRouter.get('/reports/:type/export', authenticate, requireTenant, ReportController.exportReport);
 
   // Privacy/LGPD routes (protected + tenant isolation)
