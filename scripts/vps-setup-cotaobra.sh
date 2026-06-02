@@ -72,64 +72,59 @@ log "Docker + Compose + openssl OK"
 # -----------------------------------------------------------------------------
 step "[1/7] Detectando Traefik e Evolution já em execução (somente leitura)"
 
-# --- Traefik container + rede ---
+# --- Traefik container ---
 TRAEFIK_CT="$(docker ps --format '{{.Names}}' | grep -iE 'traefik' | head -1 || true)"
-if [[ -z "${TRAEFIK_NETWORK:-}" ]]; then
-  if [[ -n "$TRAEFIK_CT" ]]; then
-    TRAEFIK_NETWORK="$(docker inspect "$TRAEFIK_CT" \
-      -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' \
-      | grep -vE '^(bridge|host|none)$' | head -1 || true)"
-  fi
-fi
-
-# --- Certresolver + entrypoint: ler dos labels de algum serviço já publicado ---
-detect_label() { # detect_label <regex-do-valor> ; varre labels de todos os containers
-  docker ps -q | while read -r id; do
-    docker inspect "$id" -f '{{range $k,$v := .Config.Labels}}{{$k}}={{$v}}{{"\n"}}{{end}}' 2>/dev/null
-  done | grep -iE "$1" | head -1 || true
-}
-if [[ -z "${TRAEFIK_CERTRESOLVER:-}" ]]; then
-  CR_LINE="$(detect_label 'tls\.certresolver=')"
-  TRAEFIK_CERTRESOLVER="${CR_LINE##*=}"
-  [[ -z "$TRAEFIK_CERTRESOLVER" ]] && TRAEFIK_CERTRESOLVER="letsencrypt"
-fi
-if [[ -z "${TRAEFIK_ENTRYPOINT:-}" ]]; then
-  EP_LINE="$(detect_label 'routers\..*\.entrypoints=')"
-  EP_VAL="${EP_LINE##*=}"
-  TRAEFIK_ENTRYPOINT="${EP_VAL:-websecure}"
-fi
-
-# --- Evolution container (para a instância dedicada do CotaObra) ---
-EVO_CT="$(docker ps --format '{{.Names}}' | grep -iE 'evolution' | head -1 || true)"
-if [[ -z "${EVOLUTION_API_URL:-}" && -n "$EVO_CT" ]]; then
-  # A Evolution precisa estar na MESMA rede do Traefik p/ o backend alcançá-la.
-  if docker inspect "$EVO_CT" -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
-       | grep -qw "${TRAEFIK_NETWORK:-__none__}"; then
-    EVOLUTION_API_URL="http://${EVO_CT}:8080"
-  else
-    warn "Evolution ($EVO_CT) não está na rede do Traefik; o backend será conectado a ela após subir."
-    EVO_NET="$(docker inspect "$EVO_CT" -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' | grep -vE '^(bridge|host|none)$' | head -1 || true)"
-    EVOLUTION_API_URL="http://${EVO_CT}:8080"
-  fi
-fi
-
-echo "   Traefik container : ${TRAEFIK_CT:-<não encontrado>}"
-echo "   Traefik network   : ${TRAEFIK_NETWORK:-<NÃO DETECTADO>}"
-echo "   Certresolver      : ${TRAEFIK_CERTRESOLVER}"
-echo "   Entrypoint HTTPS  : ${TRAEFIK_ENTRYPOINT}"
-echo "   Evolution container: ${EVO_CT:-<não encontrado>}"
-echo "   Evolution URL     : ${EVOLUTION_API_URL:-<configurar manualmente>}"
-
-if [[ -z "${TRAEFIK_NETWORK:-}" ]]; then
-  err "Não detectei a rede do Traefik. Exporte TRAEFIK_NETWORK=<nome> e rode de novo."
-  echo "    Dica: docker network ls   (procure a rede onde traefik/cotaagro estão)"
+if [[ -z "$TRAEFIK_CT" ]]; then
+  err "Container do Traefik não encontrado (esperado: nome contendo 'traefik')."
   exit 1
 fi
-docker network inspect "$TRAEFIK_NETWORK" >/dev/null 2>&1 \
-  || { err "Rede '$TRAEFIK_NETWORK' não existe."; exit 1; }
 
-confirm "Os valores detectados acima estão corretos?" || {
-  warn "Edite os overrides e rode novamente. Abortado."
+# Modo de rede do Traefik:
+#   host  → roteia pelo IP do bridge dos containers (sem attach necessário)
+#   bridge/outro → precisamos anexá-lo à nossa rede `cotaobra_default` pós-up
+TRAEFIK_NET_MODE="$(docker inspect "$TRAEFIK_CT" -f '{{.HostConfig.NetworkMode}}' 2>/dev/null || echo bridge)"
+TRAEFIK_HOST_MODE=false
+if [[ "$TRAEFIK_NET_MODE" == "host" ]]; then
+  TRAEFIK_HOST_MODE=true
+fi
+
+# --- Certresolver + entrypoint: extrair dos labels de algum serviço já publicado ---
+detect_label_value() { # detect_label_value <regex-da-label>
+  docker ps -q | while read -r id; do
+    docker inspect "$id" -f '{{range $k,$v := .Config.Labels}}{{$k}}={{$v}}{{"\n"}}{{end}}' 2>/dev/null
+  done | grep -iE "$1" | head -1 | sed 's/^[^=]*=//' || true
+}
+[[ -z "${TRAEFIK_CERTRESOLVER:-}" ]] && \
+  TRAEFIK_CERTRESOLVER="$(detect_label_value 'tls\.certresolver=')"
+[[ -z "${TRAEFIK_CERTRESOLVER:-}" ]] && TRAEFIK_CERTRESOLVER="letsencrypt"
+
+[[ -z "${TRAEFIK_ENTRYPOINT:-}" ]] && \
+  TRAEFIK_ENTRYPOINT="$(detect_label_value 'routers\..*\.entrypoints=')"
+[[ -z "${TRAEFIK_ENTRYPOINT:-}" ]] && TRAEFIK_ENTRYPOINT="websecure"
+
+# --- Evolution container (preferir o que escuta na 8080 / nome com '-api') ---
+EVO_CT="$(docker ps --format '{{.Names}}' \
+  | grep -iE 'evolution' \
+  | grep -ivE 'postgres|redis|db|cache' \
+  | head -1 || true)"
+EVO_NETWORK=""
+if [[ -n "$EVO_CT" ]]; then
+  EVO_NETWORK="$(docker inspect "$EVO_CT" \
+    -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' \
+    | grep -vE '^(bridge|host|none)$' | head -1 || true)"
+  [[ -z "${EVOLUTION_API_URL:-}" ]] && EVOLUTION_API_URL="http://${EVO_CT}:8080"
+fi
+
+echo "   Traefik container  : $TRAEFIK_CT"
+echo "   Traefik mode       : $TRAEFIK_NET_MODE $( $TRAEFIK_HOST_MODE && echo '(host — sem attach)' || echo '(será anexado à cotaobra_default)')"
+echo "   Cert resolver      : $TRAEFIK_CERTRESOLVER"
+echo "   Entrypoint HTTPS   : $TRAEFIK_ENTRYPOINT"
+echo "   Evolution container: ${EVO_CT:-<não encontrado>}"
+echo "   Evolution network  : ${EVO_NETWORK:-<n/a>}"
+echo "   Evolution URL      : ${EVOLUTION_API_URL:-<configurar depois>}"
+
+confirm "Os valores acima estão corretos?" || {
+  warn "Exporte overrides (TRAEFIK_CERTRESOLVER/EVOLUTION_API_URL/...) e rode novamente."
   exit 0
 }
 
@@ -156,9 +151,10 @@ set_if_blank() { local k="$1" v="$2"
 gen() { openssl rand -hex "${1:-32}"; }
 
 # Infra detectada
-set_env TRAEFIK_NETWORK     "$TRAEFIK_NETWORK"
 set_env TRAEFIK_CERTRESOLVER "$TRAEFIK_CERTRESOLVER"
 set_env TRAEFIK_ENTRYPOINT  "$TRAEFIK_ENTRYPOINT"
+# Removemos TRAEFIK_NETWORK se ainda existir no .env (o compose hardcoda cotaobra_default)
+sed -i '/^TRAEFIK_NETWORK=/d' .env
 [[ -n "${EVOLUTION_API_URL:-}" ]] && set_if_blank EVOLUTION_API_URL "$EVOLUTION_API_URL"
 
 # Segredos gerados (não sobrescreve se já existir → re-rodar é seguro)
@@ -207,12 +203,31 @@ step "[4/7] Build e subida dos containers do CotaObra"
 dc up -d --build
 log "Containers do projeto '$PROJECT' iniciados"
 
-# Conecta o backend à rede da Evolution, se ela estiver fora da rede do Traefik
-if [[ -n "${EVO_CT:-}" && -n "${EVO_NET:-}" ]]; then
-  if ! docker inspect cotaobra-backend -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' | grep -qw "$EVO_NET"; then
-    docker network connect "$EVO_NET" cotaobra-backend 2>/dev/null \
-      && log "backend conectado à rede da Evolution ($EVO_NET)" \
-      || warn "Não consegui conectar backend à rede da Evolution; ajuste EVOLUTION_API_URL manualmente."
+# 4a) Conectar Traefik à rede cotaobra_default (só se NÃO estiver em host mode)
+if ! $TRAEFIK_HOST_MODE; then
+  if docker inspect "$TRAEFIK_CT" \
+       -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+       | grep -qw 'cotaobra_default'; then
+    log "Traefik já está em cotaobra_default"
+  elif docker network connect cotaobra_default "$TRAEFIK_CT" 2>/dev/null; then
+    log "Traefik anexado a cotaobra_default (não impacta o FarmFlow)"
+  else
+    warn "Falha ao anexar Traefik a cotaobra_default; verifique se o container existe."
+  fi
+else
+  log "Traefik em network_mode=host → roteia direto pelos IPs (attach desnecessário)"
+fi
+
+# 4b) Conectar backend à rede da Evolution (se detectada e diferente da nossa)
+if [[ -n "${EVO_NETWORK:-}" && "$EVO_NETWORK" != "cotaobra_default" ]]; then
+  if docker inspect cotaobra-backend \
+       -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+       | grep -qw "$EVO_NETWORK"; then
+    log "backend já está em $EVO_NETWORK"
+  elif docker network connect "$EVO_NETWORK" cotaobra-backend 2>/dev/null; then
+    log "backend conectado à rede da Evolution ($EVO_NETWORK)"
+  else
+    warn "Falha ao conectar backend a $EVO_NETWORK. Ajuste EVOLUTION_API_URL manualmente."
   fi
 fi
 

@@ -17,16 +17,18 @@ name: cotaobra
 # ----------------------------------------------------------------------------
 # Redes
 # ----------------------------------------------------------------------------
+# `default` (= cotaobra_default) é onde Traefik enxerga frontend/MinIO:
+#   - Se Traefik está em network_mode=host (padrão Hostinger), ele já alcança
+#     containers pelo IP do bridge — sem ação extra.
+#   - Se Traefik está em modo bridge, o script faz `docker network connect`
+#     pós-up pra anexá-lo a esta rede (idempotente).
+# `internal` é só do CotaObra (Postgres/Redis isolados, sem internet).
 networks:
-  # Rede do Traefik já existente na VPS (detectada pelo script).
-  # external=true → o compose NÃO cria; apenas se conecta.
-  web:
-    external: true
-    name: ${TRAEFIK_NETWORK}
-
-  # Rede privada só do CotaObra. Postgres/Redis ficam aqui, sem exposição.
+  default:
+    name: cotaobra_default
   internal:
     driver: bridge
+    internal: true
 
 volumes:
   cotaobra_pg_data:
@@ -92,10 +94,10 @@ services:
       - cotaobra_minio_data:/data
     networks:
       - internal
-      - web
+      - default
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK}"
+      - "traefik.docker.network=cotaobra_default"
       - "traefik.http.routers.cotaobra-storage.rule=Host(`${STORAGE_DOMAIN}`)"
       - "traefik.http.routers.cotaobra-storage.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.cotaobra-storage.tls=true"
@@ -126,8 +128,8 @@ services:
   # --------------------------------------------------------------------------
   # Backend (Express + Prisma + Bull)
   # Sem labels Traefik: é alcançado pelo nginx do frontend (proxy /api).
-  # Fica em `web` também para conseguir falar com o container da Evolution
-  # que está atrás do mesmo Traefik.
+  # O script `vps-setup-cotaobra.sh` anexa este container à rede da Evolution
+  # (docker network connect) pós-up, pra falar com a Evolution já existente.
   # --------------------------------------------------------------------------
   backend:
     build:
@@ -158,7 +160,7 @@ services:
         condition: service_healthy
     networks:
       - internal
-      - web
+      - default
 
   # --------------------------------------------------------------------------
   # Frontend (nginx servindo o build React + proxy /api → cotaobra-backend)
@@ -177,11 +179,10 @@ services:
     depends_on:
       - backend
     networks:
-      - internal
-      - web
+      - default
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK}"
+      - "traefik.docker.network=cotaobra_default"
       - "traefik.http.routers.cotaobra-frontend.rule=Host(`${APP_DOMAIN}`)"
       - "traefik.http.routers.cotaobra-frontend.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.cotaobra-frontend.tls=true"
