@@ -1,0 +1,189 @@
+# CotaObra — Produção (VPS Hostinger compartilhada)
+# ----------------------------------------------------------------------------
+# IMPORTANTE: este compose roda como projeto isolado `cotaobra` e NÃO sobe
+# um Traefik próprio. Ele se anexa ao Traefik já existente na VPS (o mesmo que
+# atende cotaagro/FarmFlow + evolution-api) através de uma rede EXTERNA.
+#
+# Nada aqui publica portas no host (exceto via Traefik por domínio), então é
+# impossível colidir com as portas do FarmFlow.
+#
+# Suba sempre com:
+#   docker compose -p cotaobra -f docker-compose.prod.yml --env-file .env up -d --build
+# (o script scripts/vps-setup-cotaobra.sh faz isso pra você)
+# ----------------------------------------------------------------------------
+
+name: cotaobra
+
+# ----------------------------------------------------------------------------
+# Redes
+# ----------------------------------------------------------------------------
+networks:
+  # Rede do Traefik já existente na VPS (detectada pelo script).
+  # external=true → o compose NÃO cria; apenas se conecta.
+  web:
+    external: true
+    name: ${TRAEFIK_NETWORK}
+
+  # Rede privada só do CotaObra. Postgres/Redis ficam aqui, sem exposição.
+  internal:
+    driver: bridge
+
+volumes:
+  cotaobra_pg_data:
+  cotaobra_redis_data:
+  cotaobra_minio_data:
+
+services:
+  # --------------------------------------------------------------------------
+  # Postgres dedicado (isolado do banco do FarmFlow)
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: cotaobra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cotaobra
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: cotaobra
+    volumes:
+      - cotaobra_pg_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cotaobra -d cotaobra"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # --------------------------------------------------------------------------
+  # Redis dedicado (filas Bull + cache FSM)
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: cotaobra-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - cotaobra_redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # --------------------------------------------------------------------------
+  # MinIO — storage S3 dos PDFs de Ordem de Compra
+  # Exposto via Traefik em storage.<domínio> para que os links assinados
+  # (presigned) sejam baixáveis pelo fornecedor (WhatsApp) e pelo ERP.
+  # --------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: cotaobra-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cotaobra}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?defina MINIO_ROOT_PASSWORD no .env}
+      # Faz o MinIO gerar/aceitar URLs no domínio público (presigned coerente)
+      MINIO_SERVER_URL: https://${STORAGE_DOMAIN}
+    volumes:
+      - cotaobra_minio_data:/data
+    networks:
+      - internal
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK}"
+      - "traefik.http.routers.cotaobra-storage.rule=Host(`${STORAGE_DOMAIN}`)"
+      - "traefik.http.routers.cotaobra-storage.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.cotaobra-storage.tls=true"
+      - "traefik.http.routers.cotaobra-storage.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.cotaobra-storage.loadbalancer.server.port=9000"
+
+  # --------------------------------------------------------------------------
+  # Bootstrap dos buckets (one-shot, sai com 0)
+  # --------------------------------------------------------------------------
+  minio-setup:
+    image: minio/mc:latest
+    container_name: cotaobra-minio-setup
+    depends_on:
+      - minio
+    networks:
+      - internal
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://cotaobra-minio:9000 ${MINIO_ROOT_USER:-cotaobra} ${MINIO_ROOT_PASSWORD}; do
+        echo 'aguardando MinIO...'; sleep 2;
+      done;
+      mc mb --ignore-existing local/cotaobra-purchase-orders;
+      mc mb --ignore-existing local/cotaobra-uploads;
+      mc anonymous set download local/cotaobra-purchase-orders;
+      echo '✓ Buckets prontos';
+      "
+
+  # --------------------------------------------------------------------------
+  # Backend (Express + Prisma + Bull)
+  # Sem labels Traefik: é alcançado pelo nginx do frontend (proxy /api).
+  # Fica em `web` também para conseguir falar com o container da Evolution
+  # que está atrás do mesmo Traefik.
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cotaobra-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # Conexões internas — sempre apontam para os containers do CotaObra,
+      # independentemente do que estiver no .env (evita engano).
+      DATABASE_URL: "postgresql://cotaobra:${POSTGRES_PASSWORD}@cotaobra-postgres:5432/cotaobra?schema=public"
+      REDIS_URL: "redis://cotaobra-redis:6379"
+      # MinIO: assinamos URLs com o host PÚBLICO (storage.<domínio>) para que
+      # fornecedor/ERP consigam baixar o PDF. Upload trafega via Traefik.
+      MINIO_INTERNAL_ENDPOINT: "https://${STORAGE_DOMAIN}:443"
+      MINIO_PUBLIC_URL: "https://${STORAGE_DOMAIN}"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-cotaobra}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: "cotaobra-purchase-orders"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+      - web
+
+  # --------------------------------------------------------------------------
+  # Frontend (nginx servindo o build React + proxy /api → cotaobra-backend)
+  # Único serviço com rota pública principal: app.<domínio>
+  # --------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Vazio → o app chama /api relativo, e o nginx faz proxy interno.
+        # Evita Mixed Content (HTTPS → HTTP) e não expõe o backend direto.
+        VITE_API_URL: ""
+    container_name: cotaobra-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - internal
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK}"
+      - "traefik.http.routers.cotaobra-frontend.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.cotaobra-frontend.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.cotaobra-frontend.tls=true"
+      - "traefik.http.routers.cotaobra-frontend.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.cotaobra-frontend.loadbalancer.server.port=80"
