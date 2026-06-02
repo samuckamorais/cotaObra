@@ -57,7 +57,7 @@ export function Login() {
           {/* Logo & Title */}
           <div>
             <LogoFull iconSize={40} textColor="white" layout="horizontal" />
-            <p className="text-primary-foreground/60 text-xs mt-1 ml-[52px]">Gestão Inteligente de Cotações</p>
+            <p className="text-primary-foreground/60 text-xs mt-1 ml-[52px]">Cotação inteligente de materiais de construção</p>
           </div>
 
           {/* Features */}
