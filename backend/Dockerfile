@@ -45,9 +45,6 @@ RUN npm ci --omit=dev && npx prisma generate
 # Copiar build do estagio anterior
 COPY --from=builder /app/dist ./dist
 
-# Copiar dados estaticos (IBGE municipios para FF-BE-012/018, etc.)
-COPY --from=builder /app/data ./data
-
 # Dar ownership ao usuario node ANTES de trocar de usuario
 RUN chown -R node:node /app
 
