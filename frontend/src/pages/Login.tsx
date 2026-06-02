@@ -66,7 +66,7 @@ export function Login() {
               Menos tempo negociando.<br />Mais tempo produzindo.
             </h2>
             <p className="text-primary-foreground/70 text-sm mb-10">
-              Cotações agrícolas automatizadas via WhatsApp, do pedido ao fechamento.
+              Cotação de materiais de construção via WhatsApp — do pedido à Ordem de Compra.
             </p>
 
             <div className="space-y-5">
@@ -77,7 +77,7 @@ export function Login() {
                 <div>
                   <h3 className="font-semibold text-sm mb-0.5">Cotações pelo WhatsApp</h3>
                   <p className="text-xs text-primary-foreground/70 leading-relaxed">
-                    Produtor solicita e fornecedores respondem direto no WhatsApp — sem app, sem cadastro.
+                    Engenheiro de obra solicita e fornecedores respondem direto no WhatsApp — sem app, sem cadastro.
                   </p>
                 </div>
               </div>
@@ -121,7 +121,7 @@ export function Login() {
           {/* Mobile Logo */}
           <div className="lg:hidden text-center mb-8">
             <LogoFull iconSize={52} layout="vertical" className="mb-1" />
-            <p className="text-sm text-muted-foreground mt-2">Gestão de Cotações Agrícolas</p>
+            <p className="text-sm text-muted-foreground mt-2">Cotação de Materiais de Construção</p>
           </div>
 
           {/* Welcome Message */}

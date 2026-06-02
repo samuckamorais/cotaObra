@@ -38,7 +38,7 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
         <h2 className="text-sm font-medium text-foreground">
           Bem-vindo, {user?.name}
         </h2>
-        <p className="text-xs text-muted-foreground">Gerencie suas cotações agrícolas</p>
+        <p className="text-xs text-muted-foreground">Gerencie suas cotações de materiais de obra</p>
       </div>
 
       <div className="flex items-center gap-2">

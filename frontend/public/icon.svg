@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Anel esquerdo - âmbar -->
+  <path d="M 50 7 A 43 43 0 0 0 50 93 L 50 75 A 25 25 0 0 1 50 25 Z" fill="#F0B429"/>
+  <!-- Anel direito - verde -->
+  <path d="M 50 7 A 43 43 0 0 1 50 93 L 50 75 A 25 25 0 0 0 50 25 Z" fill="#4CAF50"/>
+  <!-- Skyline: 3 prédios estilizados -->
+  <rect x="31" y="48" width="13" height="29" rx="1" fill="#F0B429"/>
+  <rect x="45" y="35" width="14" height="42" rx="1" fill="#4CAF50"/>
+  <rect x="60" y="54" width="11" height="23" rx="1" fill="#F0B429"/>
+  <rect x="51" y="29" width="2" height="7" fill="#4CAF50"/>
+</svg>

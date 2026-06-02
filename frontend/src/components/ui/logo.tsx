@@ -4,9 +4,11 @@
  * LogoMark  — apenas o ícone (usado em sidebar, mobile header, favicons)
  * LogoFull  — ícone + logotipo "COTAOBRA" (usado na tela de login)
  *
- * Cores extraídas do brand guide:
- *   Âmbar  #F0B429  — metade esquerda do anel + folha esquerda
- *   Verde  #4CAF50  — metade direita do anel + folha direita
+ * Brand:
+ *   Âmbar  #F0B429  — metade esquerda do anel + prédio menor
+ *   Verde  #4CAF50  — metade direita do anel + prédio maior
+ *
+ * Conceito: anel de cotação + silhueta de obra/prédios no centro.
  */
 
 interface LogoMarkProps {
@@ -37,25 +39,16 @@ export function LogoMark({ size = 32, className }: LogoMarkProps) {
         fill="#4CAF50"
       />
 
-      {/* ── Folha esquerda — âmbar ── */}
-      <path
-        d="M 50 67 C 45 56, 27 38, 27 24 C 32 26, 47 52, 50 65 Z"
-        fill="#F0B429"
-      />
-      {/* ── Folha direita — verde ── */}
-      <path
-        d="M 50 67 C 55 56, 73 38, 73 24 C 68 26, 53 52, 50 65 Z"
-        fill="#4CAF50"
-      />
+      {/* ── Skyline interno: 3 prédios estilizados (silhueta de obra) ── */}
+      {/* Prédio esquerdo — médio, âmbar */}
+      <rect x="31" y="48" width="13" height="29" rx="1" fill="#F0B429" />
+      {/* Prédio central — mais alto, verde (cor principal da brand) */}
+      <rect x="45" y="35" width="14" height="42" rx="1" fill="#4CAF50" />
+      {/* Prédio direito — baixo, âmbar */}
+      <rect x="60" y="54" width="11" height="23" rx="1" fill="#F0B429" />
 
-      {/* ── Caule central ── */}
-      <rect x="48.5" y="64" width="3" height="13" rx="1.5" fill="#3CAF50" />
-
-      {/* ── Folhinha inferior esquerda — âmbar ── */}
-      <path
-        d="M 47 71 C 41 67, 35 61, 33 55 C 38 57, 45 65, 47 71 Z"
-        fill="#F0B429"
-      />
+      {/* Pequeno detalhe topo do prédio central (antena/guincho) */}
+      <rect x="51" y="29" width="2" height="7" fill="#4CAF50" />
     </svg>
   );
 }
