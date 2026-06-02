@@ -4,8 +4,11 @@
  * LogoMark  — apenas o ícone (usado em sidebar, mobile header, favicons)
  * LogoFull  — ícone + logotipo "COTAOBRA" (usado na tela de login)
  *
- * Brand: monocromático preto. Anel + silhueta de obra/prédios no centro.
- * Em fundos escuros, usar `textColor` ou inverter o SVG via CSS filter.
+ * Brand: monocromática. Usa `currentColor` → herda a cor do texto do contexto:
+ *   - fundo claro (texto escuro)  → logo preta
+ *   - fundo escuro (texto claro)  → logo clara
+ * Para forçar uma cor específica, passe via `style={{ color: '#...' }}` ou
+ * `className="text-white"` no LogoMark/wrapper.
  */
 
 interface LogoMarkProps {
@@ -20,32 +23,22 @@ export function LogoMark({ size = 32, className }: LogoMarkProps) {
       width={size}
       height={size}
       viewBox="0 0 100 100"
-      fill="none"
+      fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-label="CotaObra"
     >
-      {/* ── Anel esquerdo — âmbar ── */}
-      <path
-        d="M 50 7 A 43 43 0 0 0 50 93 L 50 75 A 25 25 0 0 1 50 25 Z"
-        fill="#000000"
-      />
-      {/* ── Anel direito — verde ── */}
-      <path
-        d="M 50 7 A 43 43 0 0 1 50 93 L 50 75 A 25 25 0 0 0 50 25 Z"
-        fill="#000000"
-      />
+      {/* Anel (duas metades) */}
+      <path d="M 50 7 A 43 43 0 0 0 50 93 L 50 75 A 25 25 0 0 1 50 25 Z" />
+      <path d="M 50 7 A 43 43 0 0 1 50 93 L 50 75 A 25 25 0 0 0 50 25 Z" />
 
-      {/* ── Skyline interno: 3 prédios estilizados (silhueta de obra) ── */}
-      {/* Prédio esquerdo — médio, âmbar */}
-      <rect x="31" y="48" width="13" height="29" rx="1" fill="#000000" />
-      {/* Prédio central — mais alto, verde (cor principal da brand) */}
-      <rect x="45" y="35" width="14" height="42" rx="1" fill="#000000" />
-      {/* Prédio direito — baixo, âmbar */}
-      <rect x="60" y="54" width="11" height="23" rx="1" fill="#000000" />
+      {/* Skyline: 3 prédios estilizados */}
+      <rect x="31" y="48" width="13" height="29" rx="1" />
+      <rect x="45" y="35" width="14" height="42" rx="1" />
+      <rect x="60" y="54" width="11" height="23" rx="1" />
 
-      {/* Pequeno detalhe topo do prédio central (antena/guincho) */}
-      <rect x="51" y="29" width="2" height="7" fill="#000000" />
+      {/* Antena/guincho do prédio central */}
+      <rect x="51" y="29" width="2" height="7" />
     </svg>
   );
 }
