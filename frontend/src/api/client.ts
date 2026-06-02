@@ -1,6 +1,8 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// Default vazio → baseURL fica '/api' (relativo). O nginx do container frontend
+// faz proxy de /api/ para o backend. Em dev, defina VITE_API_URL=http://localhost:3000.
+const API_URL = import.meta.env.VITE_API_URL ?? '';
 
 const STORAGE_KEYS = {
   ACCESS_TOKEN: '@cotaobra:token',
